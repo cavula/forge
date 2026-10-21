@@ -1,0 +1,153 @@
+syntax = "proto3";
+
+package forge.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/cavula/forge/gen/go/forge/v1;forgev1";
+
+// Org is the tenant security boundary. Identifiers are canonical UUID strings.
+message Org {
+  string id = 1;
+  string name = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+// User is an organization membership, not a cross-tenant identity directory.
+message User {
+  string id = 1;
+  string org_id = 2;
+  // Issuer and subject together identify an external OIDC principal.
+  string oidc_issuer = 3;
+  string oidc_subject = 4;
+  string display_name = 5;
+  Role role = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+// Role applies within one organization. Unspecified never grants access.
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_ADMIN = 1;
+  ROLE_WRITER = 2;
+  ROLE_READER = 3;
+}
+
+// Team groups organization-local users. Membership is a separate relationship.
+message Team {
+  string id = 1;
+  string org_id = 2;
+  string name = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// Stack describes a Git-backed IaC execution target.
+message Stack {
+  string id = 1;
+  string org_id = 2;
+  string name = 3;
+  string repository_url = 4;
+  string branch = 5;
+  string working_directory = 6;
+  Engine engine = 7;
+  string engine_version = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+enum Engine {
+  ENGINE_UNSPECIFIED = 0;
+  ENGINE_OPENTOFU = 1;
+  // Terraform binaries must be supplied by the operator; never redistributed.
+  ENGINE_TERRAFORM = 2;
+  ENGINE_ANSIBLE = 3;
+}
+
+// Run is one execution. A run's stack must belong to the same organization.
+message Run {
+  string id = 1;
+  string org_id = 2;
+  string stack_id = 3;
+  RunStatus status = 4;
+  RunKind kind = 5;
+  string commit_sha = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp started_at = 8;
+  google.protobuf.Timestamp finished_at = 9;
+}
+
+enum RunKind {
+  RUN_KIND_UNSPECIFIED = 0;
+  RUN_KIND_IAC = 1;
+  RUN_KIND_ANSIBLE = 2;
+  RUN_KIND_DRIFT = 3;
+}
+
+// This is a vocabulary, not authorization to transition between states.
+// Engine-specific transition validation is implemented with M1 workflows.
+enum RunStatus {
+  RUN_STATUS_UNSPECIFIED = 0;
+  RUN_STATUS_QUEUED = 1;
+  RUN_STATUS_PREPARING = 2;
+  RUN_STATUS_PLANNING = 3;
+  RUN_STATUS_POLICY_CHECK = 4;
+  RUN_STATUS_NEEDS_APPROVAL = 5;
+  RUN_STATUS_APPLYING = 6;
+  RUN_STATUS_FINISHED = 7;
+  RUN_STATUS_FAILED = 8;
+  RUN_STATUS_DISCARDED = 9;
+  RUN_STATUS_CANCELED = 10;
+  RUN_STATUS_PREVIEW = 11;
+  RUN_STATUS_EXECUTING = 12;
+  RUN_STATUS_PARTIAL = 13;
+  RUN_STATUS_SCHEDULED = 14;
+  RUN_STATUS_REFRESHING = 15;
+  RUN_STATUS_DRIFT_FOUND = 16;
+  RUN_STATUS_CLEAN = 17;
+}
+
+// StateVersion contains metadata only. State bytes use the dedicated HTTP
+// backend protocol in M1 and must never appear in list/read metadata responses.
+message StateVersion {
+  string id = 1;
+  string org_id = 2;
+  string stack_id = 3;
+  int64 serial = 4;
+  string lineage = 5;
+  string sha256 = 6;
+  int64 size_bytes = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+// Policy is an organization-scoped Rego source document.
+message Policy {
+  string id = 1;
+  string org_id = 2;
+  string name = 3;
+  string rego = 4;
+  bool enabled = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+// Secret is metadata only. Neither plaintext nor encrypted values are returned.
+message Secret {
+  string id = 1;
+  string org_id = 2;
+  // Empty means organization scope; otherwise the stack belongs to org_id.
+  string stack_id = 3;
+  string name = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// AuditEvent is append-only. Actor/action/target are identifiers, never payloads.
+message AuditEvent {
+  string id = 1;
+  string org_id = 2;
+  string actor_id = 3;
+  string action = 4;
+  string resource_type = 5;
+  string resource_id = 6;
+  string stack_id = 7;
+  google.protobuf.Timestamp occurred_at = 8;
+  string request_id = 9;
+}
