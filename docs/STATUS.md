@@ -14,7 +14,8 @@ Repository: https://github.com/cavula/forge. The published
 [wp-0.2-foundations validation branch](https://github.com/cavula/forge/tree/wp-0.2-foundations)
 is based on the existing `main` commit, preserving its Apache-2.0 license and
 history. Initial publication: `ca70725a924d2b5cc884ccaafb42849a73beb1ae`.
-No PR is opened for the combined bootstrap.
+[Draft PR #1](https://github.com/cavula/forge/pull/1) contains the first 245-line
+documentation slice; its roadmap-integrity CI passed. No PR contains the combined bootstrap.
 Roles were explicitly assigned following the roadmap's swarm instructions.
 
 | WP | Owner | Dependencies | Progress | Acceptance evidence / remaining gate |
@@ -55,7 +56,11 @@ worker/runner/CLI and future modules are explicit placeholders.
 - PASS: ADR0006 aligns module/import/protobuf Go options with `github.com/cavula/forge`;
   contracts retain the same wire fields/RPCs. Generation, Go race/integration tests,
   vet/builds and TypeScript checks pass after the namespace change.
-- PENDING: GitHub Actions execution on the validation branch.
+- PASS: hosted checks job in run 39621151617: generation, lint, migrations,
+  tenant isolation, tests, builds, coverage, buf breaking, govulncheck and web audit.
+- RETRYING: hosted Compose job could not resolve the old Trivy action tag before
+  starting. Updated to verified upstream `v0.36.0`; scanner remains `v0.76.0`.
+  Full acceptance requires the corrected Compose/image-scan job to pass.
 
 ## Review and publication
 

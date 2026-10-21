@@ -56,14 +56,14 @@ jobs:
         if: failure()
         run: docker compose -f deploy/compose/compose.yaml logs --no-color
       - name: Image scan (server)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           version: v0.76.0
           image-ref: forge-server:latest
           severity: HIGH,CRITICAL
           exit-code: '1'
       - name: Image scan (web)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           version: v0.76.0
           image-ref: forge-web:latest
