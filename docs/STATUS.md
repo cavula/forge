@@ -10,9 +10,11 @@ is running at http://localhost:3000. Stop it with `make down`.
 
 The supplied roadmap is stored byte-for-byte in BRIEF.md. The workspace was empty
 and contained no preexisting code, Git history, instructions or functionality.
-Repository: https://github.com/cavula/forge. The `wp-0.2-foundations` validation
-branch is based on the existing `main` commit, preserving its Apache-2.0 license
-and history. No PR is opened for the combined bootstrap.
+Repository: https://github.com/cavula/forge. The published
+[wp-0.2-foundations validation branch](https://github.com/cavula/forge/tree/wp-0.2-foundations)
+is based on the existing `main` commit, preserving its Apache-2.0 license and
+history. Initial publication: `ca70725a924d2b5cc884ccaafb42849a73beb1ae`.
+No PR is opened for the combined bootstrap.
 Roles were explicitly assigned following the roadmap's swarm instructions.
 
 | WP | Owner | Dependencies | Progress | Acceptance evidence / remaining gate |
@@ -78,7 +80,7 @@ the strict 500-line limit. No generated-file exemption is assumed; no oversized
 PR has been created. The combined validation branch exists to run the complete CI gate; it is not
 a proposal to merge an oversized PR.
 
-See OPEN_QUESTIONS.md for reversible choices: provisional module namespace,
+See OPEN_QUESTIONS.md for reversible choices: resolved repository namespace,
 maintainer approval identities, tenant-local users, key provider, version pins,
 bootstrap breaking baseline and publication slicing. Stop at M0 until its
 remaining acceptance gates pass and the milestone report has been reviewed.
