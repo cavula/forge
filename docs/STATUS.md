@@ -1,7 +1,7 @@
 # M0 status
 
-Current gate: **M0 implementation complete; native validation complete;
-Docker validation and image scans passed; hosted CI pending. M1 not started.**
+Current gate: **M0 implementation and acceptance checks passed, including hosted
+CI. Review/merge slices remain pending. M1 not started.**
 
 Local container validation completed on 2026-10-21. The corrected web image
 passed a second fresh-clone startup with a new database volume and a clean Git
@@ -20,13 +20,15 @@ Roles were explicitly assigned following the roadmap's swarm instructions.
 
 | WP | Owner | Dependencies | Progress | Acceptance evidence / remaining gate |
 | --- | --- | --- | --- | --- |
-| WP-0.1 | ARCHITECT | BRIEF, approved ADR0001 | Implemented; CI pending | Nine entity contracts, public build RPC, Go/Connect/TS generated; buf lint/build/format/breaking pass, regeneration deterministic. Hosted CI required for DONE. |
-| WP-0.2 | PLATFORM (root) | Contracts, schema | Implemented; hosted CI pending | Monorepo, Compose, Make, CI, Next.js, Go entrypoints, Apache-2.0. Native lint/tests/builds/smoke pass. Docker Engine validation passes: clean-clone make dev, image scans and container database tests. Hosted CI remains. |
-| WP-0.3 | ARCHITECT + QA-SECURITY | BRIEF | Implemented and reviewed; CI pending | STRIDE runners/state/webhooks/AI, trust boundaries, mitigation milestones and acceptance evidence. QA reviewed schema and platform. |
-| WP-0.4 | ARCHITECT + QA-SECURITY | ADR0002/0003, runtime role | Implemented; CI pending | Nine forced-RLS tables, composite references, tenant helper, append-only audit. Migration up/down/up and original isolation suite pass on PostgreSQL16.15. Final issuer/subject and bidirectional suite pass. |
+| WP-0.1 | ARCHITECT | BRIEF, approved ADR0001 | DONE; review pending | Nine entity contracts, public build RPC, Go/Connect/TS generated; hosted buf lint/build/breaking and deterministic generation pass. |
+| WP-0.2 | PLATFORM (root) | Contracts, schema | DONE; review pending | Monorepo, Compose, Make, CI, Next.js, Go entrypoints, Apache-2.0. Hosted lint/tests/builds, clean-clone make dev, image scans and database tests pass. |
+| WP-0.3 | ARCHITECT + QA-SECURITY | BRIEF | DONE; review pending | STRIDE runners/state/webhooks/AI, trust boundaries, mitigation milestones and acceptance evidence. QA reviewed schema and platform. |
+| WP-0.4 | ARCHITECT + QA-SECURITY | ADR0002/0003, runtime role | DONE; review pending | Nine forced-RLS tables, composite references, tenant helper, append-only audit. Migration up/down/up and original isolation suite pass on PostgreSQL16.15. Final issuer/subject and bidirectional suite pass. |
 
 Roadmap rule: a WP becomes **DONE only when its acceptance criteria pass in CI**.
-Implemented does not mean CI-green. No later-milestone code has been added;
+Both jobs passed in [hosted run 39644071200](https://github.com/cavula/forge/actions/runs/39644071200)
+at implementation commit `2708af45ad607e629cebf107edc5aaa3417c4efb`.
+DONE records implementation acceptance, not approval or merge. No later-milestone code has been added;
 worker/runner/CLI and future modules are explicit placeholders.
 
 ## Validation
@@ -56,11 +58,11 @@ worker/runner/CLI and future modules are explicit placeholders.
 - PASS: ADR0006 aligns module/import/protobuf Go options with `github.com/cavula/forge`;
   contracts retain the same wire fields/RPCs. Generation, Go race/integration tests,
   vet/builds and TypeScript checks pass after the namespace change.
-- PASS: hosted checks job in run 39621151617: generation, lint, migrations,
-  tenant isolation, tests, builds, coverage, buf breaking, govulncheck and web audit.
-- RETRYING: hosted Compose job could not resolve the old Trivy action tag before
-  starting. Updated to verified upstream `v0.36.0`; scanner remains `v0.76.0`.
-  Full acceptance requires the corrected Compose/image-scan job to pass.
+- PASS: hosted run 39644071200, both checks and Compose jobs: generation, lint,
+  migrations, tenant isolation, tests, builds, coverage, buf breaking, govulncheck,
+  web audit, clean-clone make dev and both HIGH/CRITICAL image scans.
+  The first Compose attempt could not resolve the old Trivy action tag; corrected
+  to verified upstream `v0.36.0`, with scanner `v0.76.0` and no scan suppressions.
 
 ## Review and publication
 
@@ -88,4 +90,4 @@ a proposal to merge an oversized PR.
 See OPEN_QUESTIONS.md for reversible choices: resolved repository namespace,
 maintainer approval identities, tenant-local users, key provider, version pins,
 bootstrap breaking baseline and publication slicing. Stop at M0 until its
-remaining acceptance gates pass and the milestone report has been reviewed.
+review slices are approved/merged and the milestone report has been reviewed.
