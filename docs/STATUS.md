@@ -1,0 +1,23 @@
+# M0 status
+
+Current gate: M0 in review; M1 has not started.
+
+This first review slice records the unchanged roadmap, contributor rules and M0
+scope. Runtime implementation is on the separate
+[validation branch](https://github.com/cavula/forge/tree/wp-0.2-foundations);
+it is not included in this documentation PR.
+
+| WP | Owner | Dependencies | Progress and remaining acceptance |
+| --- | --- | --- | --- |
+| WP-0.1 | ARCHITECT | Approved contract ADR | Implemented on validation branch; contract review slices and hosted buf checks remain. |
+| WP-0.2 | PLATFORM | Contracts and schema | Local clean-clone Compose checks pass; platform review slices and hosted CI remain. |
+| WP-0.3 | ARCHITECT + QA-SECURITY | BRIEF | Threat model reviewed on validation branch; documentation review slice remains. |
+| WP-0.4 | ARCHITECT + QA-SECURITY | Tenancy/encryption ADRs | Local migrations and RLS tests pass; schema/test review slices and hosted CI remain. |
+
+No work package is DONE until its acceptance criteria pass in CI. The validation
+branch contains detailed local evidence; those results do not establish hosted
+CI success. Future PRs must remain below 500 changed lines, including generated
+files and lockfiles. Next.js lockfile packaging is an unresolved review constraint.
+
+This slice validates BRIEF byte integrity using its original attachment SHA-256.
+The existing main branch's Apache-2.0 license and README are preserved.
