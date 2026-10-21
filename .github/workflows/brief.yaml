@@ -1,0 +1,14 @@
+name: roadmap-integrity
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Supplied roadmap remains byte-identical
+        run: |
+          echo '9252d1661ce407731912d6c286cebd939f700850890efec83823936946d3a03f  docs/BRIEF.md' | sha256sum --check --strict

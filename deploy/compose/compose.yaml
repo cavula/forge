@@ -1,0 +1,57 @@
+name: forge
+services:
+  postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_USER: forge_owner
+      POSTGRES_PASSWORD: forge-owner-dev-only
+      POSTGRES_DB: forge
+    ports: ["127.0.0.1:5432:5432"]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/001-role.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forge_owner -d forge"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  temporal:
+    image: temporalio/auto-setup:1.29.1
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: forge_owner
+      POSTGRES_PWD: forge-owner-dev-only
+      POSTGRES_SEEDS: postgres
+      SKIP_DEFAULT_NAMESPACE_CREATION: "false"
+    depends_on:
+      postgres: {condition: service_healthy}
+    ports: ["127.0.0.1:7233:7233"]
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "temporal:7233"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+  migrate:
+    build: {context: ../..}
+    entrypoint: ["/migrate"]
+    environment:
+      DATABASE_URL: postgres://forge_owner:forge-owner-dev-only@postgres:5432/forge?sslmode=disable
+    depends_on:
+      postgres: {condition: service_healthy}
+    restart: "no"
+  server:
+    build: {context: ../..}
+    environment:
+      DATABASE_URL: postgres://forge_app:forge-dev-only@postgres:5432/forge?sslmode=disable
+      OTEL_SERVICE_NAME: forge-server
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      temporal: {condition: service_healthy}
+    ports: ["127.0.0.1:8080:8080"]
+  web:
+    build: {context: ../.., dockerfile: web/Dockerfile}
+    depends_on: [server]
+    ports: ["127.0.0.1:3000:3000"]
+volumes:
+  postgres-data:

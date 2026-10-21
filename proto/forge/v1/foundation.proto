@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package forge.v1;
+
+option go_package = "github.com/cavula/forge/gen/go/forge/v1;forgev1";
+
+// FoundationService exposes public, non-sensitive build information.
+// It does not access tenant data or establish an authenticated session.
+service FoundationService {
+  rpc GetInfo(GetInfoRequest) returns (GetInfoResponse);
+}
+
+message GetInfoRequest {}
+
+message GetInfoResponse {
+  string version = 1;
+}
