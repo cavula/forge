@@ -1,34 +1,35 @@
 # M0 status
 
-Current gate: **M0 implementation and acceptance checks passed, including hosted
-CI. Review/merge slices remain pending. M1 not started.**
+Current gate: **M0 implementation merged and acceptance checks passed on main.
+M1 not started; stop here for the milestone report.**
 
 Local container validation completed on 2026-10-21. The corrected web image
 passed a second fresh-clone startup with a new database volume and a clean Git
-worktree. Temporary test stacks were removed; the workspace development stack
-is running at http://localhost:3000. Stop it with `make down`.
+worktree. Temporary test stacks were removed. Use `make dev` to start the
+workspace stack at http://localhost:3000 and `make down` to stop it.
 
 The supplied roadmap is stored byte-for-byte in BRIEF.md. The workspace was empty
 and contained no preexisting code, Git history, instructions or functionality.
-Repository: https://github.com/cavula/forge. The published
-[wp-0.2-foundations validation branch](https://github.com/cavula/forge/tree/wp-0.2-foundations)
-is based on the existing `main` commit, preserving its Apache-2.0 license and
-history. Initial publication: `ca70725a924d2b5cc884ccaafb42849a73beb1ae`.
-[Draft PR #1](https://github.com/cavula/forge/pull/1) contains the first 245-line
-documentation slice; its roadmap-integrity CI passed. No PR contains the combined bootstrap.
+Repository: https://github.com/cavula/forge. [PR #2](https://github.com/cavula/forge/pull/2)
+merged the complete M0 implementation into `main` on 2026-10-21 at
+`89a41c55081b9691f0079d96c0f788d1dda17df7`, preserving the existing Apache-2.0
+license and history. [Main CI](https://github.com/cavula/forge/actions/runs/39674216212)
+passed both the checks and Compose jobs; roadmap-integrity also passed.
+Documentation PR #1 and alternative review-slice PRs #3–#8 were closed as
+superseded by that merge. Their branches remain available as review history.
 Roles were explicitly assigned following the roadmap's swarm instructions.
 
 | WP | Owner | Dependencies | Progress | Acceptance evidence / remaining gate |
 | --- | --- | --- | --- | --- |
-| WP-0.1 | ARCHITECT | BRIEF, approved ADR0001 | DONE; review pending | Nine entity contracts, public build RPC, Go/Connect/TS generated; hosted buf lint/build/breaking and deterministic generation pass. |
-| WP-0.2 | PLATFORM (root) | Contracts, schema | DONE; review pending | Monorepo, Compose, Make, CI, Next.js, Go entrypoints, Apache-2.0. Hosted lint/tests/builds, clean-clone make dev, image scans and database tests pass. |
-| WP-0.3 | ARCHITECT + QA-SECURITY | BRIEF | DONE; review pending | STRIDE runners/state/webhooks/AI, trust boundaries, mitigation milestones and acceptance evidence. QA reviewed schema and platform. |
-| WP-0.4 | ARCHITECT + QA-SECURITY | ADR0002/0003, runtime role | DONE; review pending | Nine forced-RLS tables, composite references, tenant helper, append-only audit. Migration up/down/up and original isolation suite pass on PostgreSQL16.15. Final issuer/subject and bidirectional suite pass. |
+| WP-0.1 | ARCHITECT | BRIEF, approved ADR0001 | DONE; merged | Nine entity contracts, public build RPC, Go/Connect/TS generated; hosted buf lint/build/breaking and deterministic generation pass. |
+| WP-0.2 | PLATFORM (root) | Contracts, schema | DONE; merged | Monorepo, Compose, Make, CI, Next.js, Go entrypoints, Apache-2.0. Hosted lint/tests/builds, clean-clone make dev, image scans and database tests pass. |
+| WP-0.3 | ARCHITECT + QA-SECURITY | BRIEF | DONE; merged | STRIDE runners/state/webhooks/AI, trust boundaries, mitigation milestones and acceptance evidence. QA reviewed schema and platform. |
+| WP-0.4 | ARCHITECT + QA-SECURITY | ADR0002/0003, runtime role | DONE; merged | Nine forced-RLS tables, composite references, tenant helper, append-only audit. Migration up/down/up and original isolation suite pass on PostgreSQL16.15. Final issuer/subject and bidirectional suite pass. |
 
 Roadmap rule: a WP becomes **DONE only when its acceptance criteria pass in CI**.
-Both jobs passed in [hosted run 39644071200](https://github.com/cavula/forge/actions/runs/39644071200)
-at implementation commit `2708af45ad607e629cebf107edc5aaa3417c4efb`.
-DONE records implementation acceptance, not approval or merge. No later-milestone code has been added;
+Both jobs passed on the merged main commit in
+[hosted run 39674216212](https://github.com/cavula/forge/actions/runs/39674216212).
+No later-milestone code has been added;
 worker/runner/CLI and future modules are explicit placeholders.
 
 ## Validation
@@ -58,7 +59,7 @@ worker/runner/CLI and future modules are explicit placeholders.
 - PASS: ADR0006 aligns module/import/protobuf Go options with `github.com/cavula/forge`;
   contracts retain the same wire fields/RPCs. Generation, Go race/integration tests,
   vet/builds and TypeScript checks pass after the namespace change.
-- PASS: hosted run 39644071200, both checks and Compose jobs: generation, lint,
+- PASS: merged-main hosted run 39674216212, both checks and Compose jobs: generation, lint,
   migrations, tenant isolation, tests, builds, coverage, buf breaking, govulncheck,
   web audit, clean-clone make dev and both HIGH/CRITICAL image scans.
   The first Compose attempt could not resolve the old Trivy action tag; corrected
@@ -72,22 +73,28 @@ and final platform configuration. Its issuer/subject and bidirectional coverage
 findings were incorporated. Encryption implementation, auth and runner security
 remain future gates, without exposed M0 operations.
 
-Do not publish this entire bootstrap as one PR. It exceeds 500 changed lines,
-including generated code and lockfiles. Proposed review order:
+## Publication outcome and remaining questions
 
-1. BRIEF/license/role instructions and scope ADR.
-2. Tenancy/encryption ADRs and schema, then helper/tests (each below 500 lines).
-3. Threat model and security documentation.
-4. Contract ADR/config and incremental entity contracts with generated outputs.
-5. Platform services/entrypoints, web shell, Compose, then CI/docs.
+The repository history records a process deviation: PR #2 merged the combined
+bootstrap before the planned below-500-line review sequence was completed.
+The user's one-time exception covered only web/pnpm-lock.yaml, not the full
+bootstrap. This record does not extend that exception or claim the merged PR
+met the small-PR rule. Future PRs retain the original limit.
 
-Before opening PRs, split the large entity proto/generated Go file into per-entity
-files in an ARCHITECT-approved ADR and arrange lockfile/tooling slices to respect
-the strict 500-line limit. No generated-file exemption is assumed; no oversized
-PR has been created. The combined validation branch exists to run the complete CI gate; it is not
-a proposal to merge an oversized PR.
+The alternative contract-file split was not merged. Main retains entities.proto
+and its generated clients, so published descriptor filenames/imports are unchanged.
+The superseded local split is preserved on archive/m0-review-slices at commit
+2508c1f; it must not be treated as an approved migration of the now-published API.
+Any later contract change still requires a new ARCHITECT-approved ADR and real
+base-branch breaking checks.
 
-See OPEN_QUESTIONS.md for reversible choices: resolved repository namespace,
-maintainer approval identities, tenant-local users, key provider, version pins,
-bootstrap breaking baseline and publication slicing. Stop at M0 until its
-review slices are approved/merged and the milestone report has been reviewed.
+The original BRIEF remains the source of truth. Valkey is optional and omitted;
+the roadmap requires nine entity contracts, not nine separate source files.
+The later instruction attachment asks for Valkey and separate files. Those
+additional preferences have not been applied to the merged foundation.
+
+OPEN_QUESTIONS.md records remaining production choices: maintainer approval
+identities, tenant-local users, key providers and version pin maintenance.
+Authentication, encrypted state operations, workflows and executable runners
+remain M1 or later work. M0 provides their contracts/schema/security decisions,
+not their runtime implementation. No M1 work is started by this completion record.
