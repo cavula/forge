@@ -23,3 +23,5 @@ This slice validates BRIEF byte integrity using its original attachment SHA-256.
 The existing main branch's Apache-2.0 license and README are preserved.
 
 - `go-scaffold` — PLATFORM: M0: add the Go monorepo scaffolding and review checks. Validation: format, vet, Go race tests/build, helper coverage and govulncheck; hosted CI required before review readiness.
+
+- `tenant-isolation` — ARCHITECT + QA-SECURITY: M0: enforce PostgreSQL tenant isolation and audit immutability. Validation: PostgreSQL16 up/down/up, non-owner cross-tenant and absent-context tests; hosted CI required before review readiness.
