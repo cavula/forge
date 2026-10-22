@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package forge.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/cavula/forge/gen/go/forge/v1;forgev1";
+
+// Team groups organization-local users. Membership is a separate relationship.
+message Team {
+  string id = 1;
+  string org_id = 2;
+  string name = 3;
+  google.protobuf.Timestamp created_at = 4;
+}

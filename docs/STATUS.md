@@ -31,3 +31,5 @@ The existing main branch's Apache-2.0 license and README are preserved.
 - `contract-org` — ARCHITECT: M0: define the Org contract and generated clients. Validation: buf lint/format/breaking, generated-client consistency, Go and TypeScript tests; hosted CI required before review readiness.
 
 - `contract-role` — ARCHITECT: M0: define the Role and User contract and generated clients. Validation: buf lint/format/breaking, generated-client consistency, Go and TypeScript tests; hosted CI required before review readiness.
+
+- `contract-team` — ARCHITECT: M0: define the Team contract and generated clients. Validation: buf lint/format/breaking, generated-client consistency, Go and TypeScript tests; hosted CI required before review readiness.
