@@ -1,6 +1,7 @@
 # Open questions and reversible decisions
 
-M0 decisions are bounded by the unchanged BRIEF. No M1 feature is authorized here.
+The unchanged BRIEF is authoritative. The user authorized M1 on 2026-10-22;
+M2 and later milestones remain outside the current gate.
 
 | Question | M0 choice | Follow-up |
 | --- | --- | --- |
@@ -18,7 +19,20 @@ M0 decisions are bounded by the unchanged BRIEF. No M1 feature is authorized her
 | Go version within 1.23+? | Pin 1.26.10 toolchain and 1.26 module floor to satisfy current dependency requirements. | Maintain security patch updates via CI. |
 | Breaking checks without an existing base branch? | Check committed M0 descriptor on bootstrap; compare actual Git base SHA subsequently. | Resolved: main contains M0; subsequent changes compare against the actual base SHA. Never silently skip checks. |
 | Can the <500-line PR rule fit the whole bootstrap? | PR #2 merged the combined bootstrap; superseded draft PRs #1 and #3–#8 are closed. | The user approved an exception only for web/pnpm-lock.yaml. The combined merge exceeded that scope; STATUS records this process deviation. Future PRs retain the original limit. |
-| Can local validation establish clean-clone Compose and CI acceptance? | Native checks plus fresh-clone Compose startup, Docker PostgreSQL tests and both app image scans pass. | Resolved: both hosted jobs passed on merged main commit 89a41c5 in run 39674216212. M0 is merged and validated; M1 remains stopped. |
+| Can local validation establish clean-clone Compose and CI acceptance? | Native checks plus fresh-clone Compose startup, Docker PostgreSQL tests and both app image scans pass. | Resolved: both hosted jobs passed on merged main commit 89a41c5 in run 39674216212. M0 is merged and validated; M1 is now authorized separately. |
+
+## M1 choices
+
+- OIDC provider and initial administrator: keep issuer/client configuration
+  explicit; no public auto-enrollment or request-supplied admin role. An operator
+  bootstrap and verified identity-to-membership flow require their own slice.
+- Existing memberships receive reader as the least privileged valid role.
+  Missing membership, unspecified/unknown roles and unknown actions deny access.
+  Teams group users without adding permissions (ADR0009).
+- State, secrets, credentials and run approval need explicit permissions before
+  exposure; ordinary metadata/resource access does not authorize them.
+- No identity RPC is added by the first slice. New contracts require a new
+  ARCHITECT-approved ADR; published protobuf filenames remain unchanged.
 
 Accepted choices are reversible via a new migration or approved ADR. Plaintext
 schema constraints cannot prove encryption; direct SQL credentials can select the

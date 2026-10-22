@@ -56,6 +56,7 @@ func TestTenantIsolation(t *testing.T) {
 		{"orgs", "INSERT INTO orgs(id,name) VALUES($1,'forbidden')", []any{orgA}},
 		{"users", "INSERT INTO users(org_id,id,issuer,subject,display_name) VALUES($1,$2,'https://issuer.test','subject','user')", []any{orgA, id}},
 		{"teams", "INSERT INTO teams(org_id,id,name) VALUES($1,$2,'team')", []any{orgA, id}},
+		{"team_memberships", "INSERT INTO team_memberships(org_id,team_id,user_id) VALUES($1,$2,$2)", []any{orgA, id}},
 		{"stacks", "INSERT INTO stacks(org_id,id,name) VALUES($1,$2,'stack')", []any{orgA, id}},
 		{"runs", "INSERT INTO runs(org_id,id,stack_id) VALUES($1,$2,$2)", []any{orgA, id}},
 		{"state_versions", "INSERT INTO state_versions(org_id,id,stack_id,serial,ciphertext,wrapped_dek,nonce,key_id) VALUES($1,$2,$2,0,'cipher','wrapped','123456789012','key')", []any{orgA, id}},
