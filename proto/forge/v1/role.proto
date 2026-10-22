@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package forge.v1;
+
+option go_package = "github.com/cavula/forge/gen/go/forge/v1;forgev1";
+
+// Role applies within one organization. Unspecified never grants access.
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_ADMIN = 1;
+  ROLE_WRITER = 2;
+  ROLE_READER = 3;
+}

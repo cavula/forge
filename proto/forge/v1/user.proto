@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package forge.v1;
+
+import "forge/v1/role.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/cavula/forge/gen/go/forge/v1;forgev1";
+
+// User is an organization membership, not a cross-tenant identity directory.
+message User {
+  string id = 1;
+  string org_id = 2;
+  // Issuer and subject together identify an external OIDC principal.
+  string oidc_issuer = 3;
+  string oidc_subject = 4;
+  string display_name = 5;
+  Role role = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
