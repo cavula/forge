@@ -12,6 +12,7 @@ QA-SECURITY review is mandatory for authentication, state, secrets, runners and 
 Use non-owner PostgreSQL roles, WithOrg transaction-local tenant context derived
 from authorization, and explicit org predicates. Do not log payloads or credentials.
 
-Keep each proposed PR below 500 changed lines, with tests/docs. Do not publish an
-oversized bootstrap diff as one PR. Use the review slicing plan in docs/STATUS.md;
+Keep each proposed PR below 500 changed lines, with tests/docs. The user approved
+a one-time exception for web/pnpm-lock.yaml only; count every other file, including
+generated clients, toward the limit. Do not publish an oversized bootstrap PR. Use the review slicing plan in docs/STATUS.md;
 regenerate clients in each contract slice. A WP is DONE only after its CI AC pass.

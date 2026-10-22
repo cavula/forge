@@ -1,0 +1,2 @@
+# Preserve the pinned protobuf plugin's generated TypeScript formatting.
+web/src/gen/** whitespace=-blank-at-eof

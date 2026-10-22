@@ -21,3 +21,5 @@ files and lockfiles. Next.js lockfile packaging is an unresolved review constrai
 
 This slice validates BRIEF byte integrity using its original attachment SHA-256.
 The existing main branch's Apache-2.0 license and README are preserved.
+
+- `go-scaffold` — PLATFORM: M0: add the Go monorepo scaffolding and review checks. Validation: format, vet, Go race tests/build, helper coverage and govulncheck; hosted CI required before review readiness.

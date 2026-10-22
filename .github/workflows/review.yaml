@@ -1,0 +1,93 @@
+name: M0 review slices
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-bookworm
+        env:
+          POSTGRES_USER: forge_owner
+          POSTGRES_PASSWORD: forge-owner-dev-only
+          POSTGRES_DB: forge
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U forge_owner -d forge"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      DATABASE_URL: postgres://forge_owner:forge-owner-dev-only@localhost:5432/forge?sslmode=disable
+      TEST_DATABASE_URL: postgres://forge_app:forge-dev-only@localhost:5432/forge?sslmode=disable
+      BUF_BREAKING_AGAINST: ${{ github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.26.10'}
+      - uses: pnpm/action-setup@v4
+        if: hashFiles('web/package.json') != ''
+        with: {version: '10.34.5'}
+      - uses: actions/setup-node@v4
+        if: hashFiles('web/package.json') != ''
+        with: {node-version: '24', cache: pnpm, cache-dependency-path: web/pnpm-lock.yaml}
+      - if: hashFiles('web/package.json') != ''
+        run: pnpm --dir web install --frozen-lockfile
+      - name: Validate and regenerate every available contract
+        if: hashFiles('buf.yaml') != ''
+        run: |
+          go install github.com/bufbuild/buf/cmd/buf@v1.74.0
+          buf lint
+          buf format --diff --exit-code
+          buf generate
+          ./scripts/buf-breaking.sh
+          git diff --exit-code -- gen web/src/gen
+          test -z "$(git ls-files --others --exclude-standard gen web/src/gen)"
+      - name: Migrations up, down, up
+        if: hashFiles('internal/database/migrations/*.sql') != ''
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f deploy/compose/init.sql
+          go run ./cmd/migrate
+          go run ./cmd/migrate down
+          go run ./cmd/migrate
+      - name: Go lint, race tests, build and vulnerability check
+        run: |
+          test -z "$(gofmt -l cmd internal)"
+          go vet ./...
+          go test -race -coverprofile=coverage.out ./...
+          go build ./...
+          go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      - name: Coverage for implemented business and security helpers
+        run: |
+          packages=internal/testutil
+          test ! -f internal/database/tenant.go || packages="$packages internal/database"
+          test ! -f internal/platform/http.go || packages="$packages internal/platform"
+          python3 scripts/check-coverage.py coverage.out $packages
+      - name: Web type check, wire tests and production dependency audit
+        if: hashFiles('web/package.json') != ''
+        run: |
+          pnpm --dir web lint
+          pnpm --dir web test
+          pnpm --dir web audit --prod --audit-level high
+      - if: hashFiles('web/app/layout.tsx') != ''
+        run: pnpm --dir web build
+      - if: hashFiles('Dockerfile') != ''
+        run: docker build -t forge-server:latest .
+      - uses: aquasecurity/trivy-action@v0.36.0
+        if: hashFiles('Dockerfile') != ''
+        with:
+          version: v0.76.0
+          image-ref: forge-server:latest
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+      - if: hashFiles('web/Dockerfile') != ''
+        run: docker build -t forge-web:latest -f web/Dockerfile .
+      - uses: aquasecurity/trivy-action@v0.36.0
+        if: hashFiles('web/Dockerfile') != ''
+        with:
+          version: v0.76.0
+          image-ref: forge-web:latest
+          severity: HIGH,CRITICAL
+          exit-code: '1'
