@@ -3,8 +3,8 @@ services:
   postgres:
     image: postgres:16-bookworm
     environment:
-      POSTGRES_USER: forge_owner
-      POSTGRES_PASSWORD: forge-owner-dev-only
+      POSTGRES_USER: forge_maintenance
+      POSTGRES_PASSWORD: forge-maintenance-dev-only
       POSTGRES_DB: forge
     ports: ["127.0.0.1:5432:5432"]
     volumes:
