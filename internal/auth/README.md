@@ -11,3 +11,9 @@ ADR0010 adds internal credential primitives: `NewToken`, `ParseToken` and
 one-time issuance response. Tokens/verifiers redact normal formatting and JSON.
 Matching verifies a credential only; expiry, revocation, scopes and current
 membership must be enforced before public authentication is exposed.
+
+ADR0011 adds HTTPS provider-backed ID-token verification. Only verified tokens
+with the expected browser-flow nonce produce an opaque `VerifiedIdentity`.
+Provider requests are bounded and redirect-free; errors/diagnostics redact
+identity data. Browser flow, sessions and membership resolution remain required
+before exposing login. No OIDC handler is registered by this slice.

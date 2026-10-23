@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package forge.v1;
+
+import "forge/v1/entities.proto";
+
+option go_package = "github.com/cavula/forge/gen/go/forge/v1;forgev1";
+
+// GetCurrentUserRequest selects no tenant or permission; authentication resolves membership.
+message GetCurrentUserRequest {}
+
+// GetCurrentUserResponse contains only the authenticated, resolved membership.
+message GetCurrentUserResponse {
+  User user = 1;
+}

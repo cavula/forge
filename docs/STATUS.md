@@ -7,7 +7,7 @@ Stop at the MVP e2e checkpoint before M2. M0 is complete and merged.**
 
 | WP | Owner | Dependencies | Progress / acceptance gate |
 | --- | --- | --- | --- |
-| WP-1.1 | CORE-BACKEND (root), ARCHITECT, QA-SECURITY | M0; ADR0009/0010 | IN PROGRESS: merged role/membership foundation; token credential tests and QA pass locally. OIDC, administration and token persistence/endpoints remain. |
+| WP-1.1 | CORE-BACKEND (root), ARCHITECT, QA-SECURITY | M0; ADR0009/0010/0011 | IN PROGRESS: merged role/membership and token primitives; verified OIDC tests/QA pass locally. Browser login, administration and token persistence/endpoints remain. |
 | WP-1.2 | CORE-BACKEND (root) | WP-1.1; approved RPC ADR | QUEUED: authenticated stack CRUD and integration tests. |
 | WP-1.3 | CORE-BACKEND (root), QA-SECURITY | WP-1.1/1.2; encryption ADR | QUEUED: tofu init, encrypted/versioned state, lock contention tests. |
 | WP-1.4 | CORE-BACKEND (root), QA-SECURITY | WP-1.2/1.5 | QUEUED: verified GitHub/GitLab webhooks, PR comments/statuses. |
@@ -40,7 +40,14 @@ coverage; QA-SECURITY approved the bounded primitive. Persistence, scoped expiry
 revocation, current membership enforcement and transactional audit remain gates.
 No API is exposed by this slice. PR #11 merged after hosted CI checks,
 Compose/image scans and roadmap integrity passed (run 39890935835).
-ARCHITECT is designing authenticated identity/stack APIs in parallel (ADR0011).
+OIDC verification slice (ADR0011): pinned go-oidc verifies HTTPS discovery/JWKS,
+signature, issuer, audience, expiry, subject and required nonce. Provider calls
+are bounded and redirects blocked. Verified identity is opaque and diagnostics
+redact it. Real TLS/JWKS negative tests pass with auth coverage 100%; QA-SECURITY
+approved after a diagnostic leak fix. Browser state/PKCE, one-use flow records,
+sessions, CSRF, current membership and rate limits remain before exposing login.
+The first current-user message contract is generated and tested locally; no
+identity service handler is bound. Hosted CI for these slices is pending.
 The user authorized continuous work and independent/stacked PRs without waiting
 for each merge; merges remain under user control. M1 scope and gates are intact.
 
