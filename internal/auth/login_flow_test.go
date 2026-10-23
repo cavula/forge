@@ -7,7 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +21,8 @@ import (
 	"github.com/cavula/forge/internal/testutil"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
 )
 
 func flowPool(t *testing.T, url string, max int32) *pgxpool.Pool {
@@ -34,6 +38,48 @@ func flowPool(t *testing.T, url string, max int32) *pgxpool.Pool {
 	}
 	t.Cleanup(pool.Close)
 	return pool
+}
+
+// Each test owns its database so concurrent packages cannot change audit counts.
+func flowDatabase(t *testing.T, runtimeURL, ownerURL string) (string, string) {
+	t.Helper()
+	ctx := context.Background()
+	admin := flowPool(t, ownerURL, 1)
+	id, err := loginFlowUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "forge_flow_" + strings.ReplaceAll(id, "-", "")
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
+		t.Fatal("isolated fixture creation failed")
+	}
+	t.Cleanup(func() {
+		if _, err := admin.Exec(ctx, "DROP DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
+			t.Error("isolated fixture cleanup failed")
+		}
+	})
+	urls := make([]string, 2)
+	for i, raw := range []string{runtimeURL, ownerURL} {
+		parsed, err := url.Parse(raw)
+		if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") {
+			t.Fatal("invalid database fixture URL")
+		}
+		parsed.Path = "/" + name
+		urls[i] = parsed.String()
+	}
+	config := admin.Config().ConnConfig.Copy()
+	config.Database = name
+	db := stdlib.OpenDB(*config)
+	defer db.Close()
+	migrations, _ := fs.Sub(database.Migrations, "migrations")
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations)
+	if err != nil {
+		t.Fatal("isolated fixture migrator failed")
+	}
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatal("isolated fixture migration failed")
+	}
+	return urls[0], urls[1]
 }
 
 func flowKey(t *testing.T, id string, material byte) *secrets.AuthFlowKey {
@@ -90,6 +136,7 @@ func TestLoginFlowPostgres(t *testing.T) {
 	if url == "" || ownerURL == "" {
 		t.Skip("disposable PostgreSQL runtime and owner fixture required")
 	}
+	url, ownerURL = flowDatabase(t, url, ownerURL)
 	ctx := context.Background()
 	pool, owner := flowPool(t, url, 1), flowPool(t, ownerURL, 1)
 	key := flowKey(t, "login-flow-fixture", 37)
