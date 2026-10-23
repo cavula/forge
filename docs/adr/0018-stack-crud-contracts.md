@@ -124,6 +124,15 @@ UTF-8 bytes, reject invalid UTF-8/NUL/control characters and surrounding whitesp
 | environment_variables | At most 64 entries; unique case-sensitive names matching `[A-Za-z_][A-Za-z0-9_]{0,63}`; each value at most 4096 bytes, total names+values at most 16 KiB. Valid UTF-8, no controls/NUL. Return entries sorted by name. |
 | id / expected_revision | IDs are canonical lowercase nonzero UUIDs. Create generates a fresh server UUID. Update/Delete require revision 1 through 9223372036854775807; do not coerce uint64 through JavaScript Number. |
 
+Canonical repository DNS uses pinned `golang.org/x/net/idna` with
+`idna.New(idna.MapForLookup(), idna.Transitional(false), idna.BidiRule(),
+idna.VerifyDNSLength(true))`, plus lowercase ASCII LDH and DNS length checks.
+Require error-free `ToASCII(host) == host`; never rewrite accepted input.
+Reject empty labels, a trailing root dot and reserved double-hyphen labels such
+as `ab--cd`; A-labels must pass decoded IDNA validity and canonical re-encoding.
+Hosts consisting only of digits/dots must parse as a canonical IP address,
+never fall back to numeric DNS labels.
+
 CRUD performs no repository fetch, DNS lookup, filesystem access, shell command,
 credential discovery or binary installation. Repository acceptance grants no
 network permission: self-hosted/private hosts still need later VCS authentication,
