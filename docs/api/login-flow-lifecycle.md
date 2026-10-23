@@ -24,7 +24,7 @@ Transactions never persist lookup context; transaction-local settings restore an
 preexisting session settings, which callers must avoid using for authorization.
 
 Real PostgreSQL tests require non-owner `TEST_DATABASE_URL` and disposable owner
-`DATABASE_URL` fixtures. Owner-only temporary policies and conditional fault
+`DATABASE_URL` fixtures; each test creates/drops its own database. Temporary policies and conditional fault
 triggers verify expiry, corruption, event rollback and cancellation; runtime
 operations retain FORCE RLS and their narrow grants. No owner dependency enters
 the helper. Tests also cover actual concurrent consumption and tenant isolation.
