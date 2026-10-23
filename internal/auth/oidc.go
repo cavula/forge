@@ -1,14 +1,17 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,13 +22,23 @@ import (
 var errOIDC = errors.New("invalid identity token")
 
 // VerifiedIdentity contains only verified identity, never organization authority.
-type VerifiedIdentity struct{ issuer, subject string }
+// verifiedExpiry is populated only by successful ID-token verification; identities
+// reconstructed for membership lookup cannot establish a new browser session.
+type VerifiedIdentity struct {
+	issuer, subject string
+	verifiedExpiry  time.Time
+}
 
 func (VerifiedIdentity) String() string               { return "[REDACTED]" }
 func (VerifiedIdentity) GoString() string             { return "[REDACTED]" }
 func (VerifiedIdentity) Format(s fmt.State, _ rune)   { _, _ = io.WriteString(s, "[REDACTED]") }
 func (VerifiedIdentity) MarshalText() ([]byte, error) { return []byte("[REDACTED]"), nil }
 func (VerifiedIdentity) MarshalJSON() ([]byte, error) { return []byte(`"[REDACTED]"`), nil }
+func (VerifiedIdentity) LogValue() slog.Value         { return slog.StringValue("[REDACTED]") }
+
+func (identity VerifiedIdentity) usableForSession(now time.Time) bool {
+	return identity.issuer != "" && identity.subject != "" && !identity.verifiedExpiry.IsZero() && identity.verifiedExpiry.After(now)
+}
 
 // OIDCVerifier checks provider-backed identity; it does not create a membership.
 type OIDCVerifier struct {
@@ -105,5 +118,39 @@ func (v *OIDCVerifier) Verify(ctx context.Context, raw, expectedNonce string) (V
 			return VerifiedIdentity{}, errOIDC
 		}
 	}
-	return VerifiedIdentity{issuer: token.Issuer, subject: token.Subject}, nil
+	var expiry canonicalOIDCExpiry
+	if token.Claims(&expiry) != nil || !expiry.value.Equal(token.Expiry) || !expiry.value.After(time.Now()) {
+		return VerifiedIdentity{}, errOIDC
+	}
+	return VerifiedIdentity{issuer: token.Issuer, subject: token.Subject, verifiedExpiry: expiry.value}, nil
+}
+
+// Reject the SDK's permissive quoted/fractional/exponent NumericDate coercion and
+// duplicate expiry keys. Retain only one exact, positive integer seconds value.
+type canonicalOIDCExpiry struct{ value time.Time }
+
+func (expiry *canonicalOIDCExpiry) UnmarshalJSON(raw []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if opening, err := decoder.Token(); err != nil || opening != json.Delim('{') {
+		return errOIDC
+	}
+	for decoder.More() {
+		name, err := decoder.Token()
+		var value json.RawMessage
+		if err != nil || decoder.Decode(&value) != nil {
+			return errOIDC
+		}
+		if name != "exp" {
+			continue
+		}
+		seconds, err := strconv.ParseInt(string(value), 10, 64)
+		if err != nil || seconds <= 0 || strconv.FormatInt(seconds, 10) != string(value) || !expiry.value.IsZero() {
+			return errOIDC
+		}
+		expiry.value = time.Unix(seconds, 0)
+	}
+	if _, err := decoder.Token(); err != nil || expiry.value.IsZero() {
+		return errOIDC
+	}
+	return nil
 }

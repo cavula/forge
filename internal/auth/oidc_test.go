@@ -15,6 +15,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -59,6 +60,11 @@ func signedIDToken(t *testing.T, key *rsa.PrivateKey, claims map[string]any) str
 	if err != nil {
 		t.Fatal("fixture claims could not be encoded")
 	}
+	return signedIDTokenPayload(t, key, payload)
+}
+
+func signedIDTokenPayload(t *testing.T, key *rsa.PrivateKey, payload []byte) string {
+	t.Helper()
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","kid":"fixture-key"}`))
 	unsigned := header + "." + base64.RawURLEncoding.EncodeToString(payload)
 	digest := sha256.Sum256([]byte(unsigned))
@@ -76,12 +82,13 @@ func TestOIDCProviderVerification(t *testing.T) {
 	if err != nil {
 		t.Fatal("TLS provider discovery failed")
 	}
+	expiresAt := time.Now().Add(time.Hour).Truncate(time.Second)
 	claims := func() map[string]any {
-		return map[string]any{"iss": server.URL, "sub": "verified-subject", "aud": "forge-client", "exp": time.Now().Add(time.Hour).Unix(), "nonce": "browser-flow-nonce"}
+		return map[string]any{"iss": server.URL, "sub": "verified-subject", "aud": "forge-client", "exp": expiresAt.Unix(), "nonce": "browser-flow-nonce"}
 	}
 	raw := signedIDToken(t, key, claims())
 	principal, err := verifier.Verify(ctx, raw, "browser-flow-nonce")
-	if err != nil || principal != (VerifiedIdentity{issuer: server.URL, subject: "verified-subject"}) {
+	if err != nil || principal.issuer != server.URL || principal.subject != "verified-subject" || !principal.verifiedExpiry.Equal(expiresAt) {
 		t.Fatal("valid signed identity did not resolve")
 	}
 	var captured bytes.Buffer
@@ -161,6 +168,60 @@ func TestOIDCProviderVerification(t *testing.T) {
 	assertOIDCRejected(t, verifier, ctx, raw, "")
 	assertOIDCRejected(t, nil, ctx, raw, "browser-flow-nonce")
 	assertOIDCRejected(t, &OIDCVerifier{}, ctx, raw, "browser-flow-nonce")
+}
+
+func TestOIDCVerifiedExpiryProvenance(t *testing.T) {
+	server, key := oidcFixture(t, nil)
+	ctx := oidc.ClientContext(context.Background(), server.Client())
+	verifier, err := NewOIDCVerifier(ctx, server.URL, "forge-client")
+	if err != nil {
+		t.Fatal("TLS provider discovery failed")
+	}
+	now := time.Now()
+	expiry := now.Add(2 * time.Hour).Truncate(time.Second)
+	claims := map[string]any{"iss": server.URL, "sub": "expiry-subject", "aud": "forge-client", "exp": expiry.Unix(), "nonce": "expiry-nonce"}
+	raw := signedIDToken(t, key, claims)
+	proof, err := verifier.Verify(ctx, raw, "expiry-nonce")
+	if err != nil || !proof.verifiedExpiry.Equal(expiry) || !proof.usableForSession(now) {
+		t.Fatal("verified expiry did not retain the signed NumericDate")
+	}
+	if proof.usableForSession(expiry) || proof.usableForSession(expiry.Add(time.Second)) {
+		t.Fatal("expired proof remained usable for session creation")
+	}
+	for _, fabricated := range []VerifiedIdentity{{}, {issuer: server.URL}, {subject: "expiry-subject"}, {issuer: server.URL, subject: "expiry-subject"}} {
+		if fabricated.usableForSession(now) || fabricated.usableForSession(time.Time{}.Add(-time.Second)) {
+			t.Fatal("fabricated membership identity became session proof")
+		}
+	}
+	var output bytes.Buffer
+	_, _ = fmt.Fprintf(&output, "%v %+v %#v", proof, &proof, proof)
+	encoded, _ := json.Marshal(proof)
+	output.Write(encoded)
+	encoded, _ = proof.MarshalText()
+	output.Write(encoded)
+	slog.New(slog.NewJSONHandler(&output, nil)).Info("proof", "identity", proof)
+	testutil.NoSecrets(t, output.String(), raw, server.URL, "expiry-subject", "expiry-nonce", strconv.FormatInt(expiry.Unix(), 10), expiry.String())
+	for name, invalid := range map[string]any{
+		"quoted": strconv.FormatInt(expiry.Unix(), 10), "fractional": json.Number(strconv.FormatInt(expiry.Unix(), 10) + ".5"),
+		"decimal integer": json.Number(strconv.FormatInt(expiry.Unix(), 10) + ".0"), "exponent": json.Number(strconv.FormatInt(expiry.Unix(), 10) + "e0"),
+		"overflow": json.Number("9223372036854775808"), "null": nil, "zero": 0, "negative": -1,
+		"array": []int64{expiry.Unix()}, "object": map[string]any{"seconds": expiry.Unix()}, "boolean": true,
+	} {
+		t.Run(name, func(t *testing.T) {
+			claims["exp"] = invalid
+			assertOIDCRejected(t, verifier, ctx, signedIDToken(t, key, claims), "expiry-nonce")
+		})
+	}
+	claims["exp"] = expiry.Unix()
+	payload, _ := json.Marshal(claims)
+	for _, duplicate := range []int64{expiry.Unix(), expiry.Add(time.Hour).Unix()} {
+		ambiguous := strings.TrimSuffix(string(payload), "}") + `,"exp":` + strconv.FormatInt(duplicate, 10) + `}`
+		assertOIDCRejected(t, verifier, ctx, signedIDTokenPayload(t, key, []byte(ambiguous)), "expiry-nonce")
+	}
+	for _, invalidJSON := range []string{"01", "NaN", "+1"} {
+		invalid := strings.Replace(string(payload), `"exp":`+strconv.FormatInt(expiry.Unix(), 10), `"exp":`+invalidJSON, 1)
+		assertOIDCRejected(t, verifier, ctx, signedIDTokenPayload(t, key, []byte(invalid)), "expiry-nonce")
+	}
 }
 
 func assertOIDCRejected(t *testing.T, verifier *OIDCVerifier, ctx context.Context, raw, nonce string) {
