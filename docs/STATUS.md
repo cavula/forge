@@ -18,10 +18,10 @@ claim; exporters, alerts, recovery and SLOs retain their original milestone gate
 | WP | Owner | Dependencies | Progress / acceptance gate |
 | --- | --- | --- | --- |
 | WP-1.1 | CORE-BACKEND (root), ARCHITECT, QA-SECURITY | M0; ADR0009/0010/0011 | IN PROGRESS: merged role/membership and token primitives; OIDC verification merged with passing tests/QA. Browser login, administration and token persistence/endpoints remain. |
-| WP-1.2 | CORE-BACKEND (root) | WP-1.1; approved RPC ADR | QUEUED: authenticated stack CRUD and integration tests. |
+| WP-1.2 | CORE-BACKEND (root), contract/validation agents | WP-1.1; accepted ADR0018 | IN PROGRESS: generated configuration/read contracts and tested path/metadata/environment validation; authenticated storage and handlers remain. |
 | WP-1.3 | CORE-BACKEND (root), QA-SECURITY | WP-1.1/1.2; ADR0013 | IN PROGRESS: reviewed envelope primitive published; state backend, versioning and lock contention remain. |
 | WP-1.4 | CORE-BACKEND (root), QA-SECURITY | WP-1.2/1.5 | QUEUED: verified GitHub/GitLab webhooks, PR comments/statuses. |
-| WP-1.5 | ORCH (root) | Approved run contracts; WP-1.2 | QUEUED: Temporal workflow cancellation, timeouts and retries. |
+| WP-1.5 | ORCH agent + root, ARCHITECT | Accepted ADR0019; WP-1.2/1.3/1.6 | IN PROGRESS: immutable approval/apply design accepted; structural model under test. Temporal workflow/adapters and real cancellation/retry evidence remain. |
 | WP-1.6 | ORCH (root), QA-SECURITY | WP-1.5 | QUEUED: ephemeral rootless runner, no host credentials, egress tests. |
 | WP-1.7 | ORCH (root) | WP-1.1/1.5/1.6 | QUEUED: authorized live logs and persistence. |
 | WP-1.8 | CORE-BACKEND (root), QA-SECURITY | WP-1.1; ADR0013 | IN PROGRESS: encryption primitive reviewed; secret persistence/variables, key operations and cloud OIDC remain. |
@@ -239,3 +239,42 @@ a testable base for small dependent draft PRs. No oversized integration PR or ma
 merge is authorized by this choice. After parent merges, retarget, remeasure the
 actual diff and rerun CI before review. No M1 WP is DONE and the full LocalStack
 push-to-apply/state/audit gate remains outstanding; stop there before M2.
+
+## M1 integration cycle — 2026-10-23
+
+This record supersedes earlier review-queue snapshots. No complete M1 WP or MVP
+acceptance is claimed. Root coordinates integration; maintainer controls merges.
+
+- Main includes roles, token primitives, starter policies, membership resolution,
+  operator bootstrap, tenant/auth encryption and key loading, OIDC hardening,
+  current-user service contracts, execution/design docs and login-flow creation.
+  PRs #16/#17/#18/#19/#22/#24/#27/#30 are merged. #23/#25/#26 were closed as
+  superseded after their contents landed through maintainer-created PR #34.
+- PR #34 merged the feature prerequisite base as 2,124 changed lines. The proposed
+  individual slices were below 500 lines, but this combined merge exceeded the
+  small-PR rule. It is not an additional exception. Use individual reviewed PRs;
+  integration bases are test scaffolding, not a combined merge queue.
+- The corrected flow tests create/migrate/drop their own random database, proving
+  actual connection selection and cleanup. This fixes CI interference from other
+  packages' audit writes without weakening production grants. Create #30 is 499
+  changed lines; Consume #31 is 243. Refreshed #31 and stack environment #28
+  passed checks/Compose/image scans against merged main (40028923182/40028906885).
+- Session schema #32, verified-expiry proof #35 and Create-only session #36 are
+  separate drafts. ARCHITECT/QA approved their bounded designs. Independent real
+  PostgreSQL race tests prove expiry caps, proof nonrenewal, ten-table isolation,
+  redaction and rollback even when commit fails. Hosted CI and parent merges gate
+  readiness; browser routes remain unbound.
+- Lookup/Revoke is independently QA approved (303 changed lines, full auth 93.4%,
+  session helper 91.0%). Strict atomic replacement is assigned to CORE-BACKEND;
+  Origin/CSRF, shared limiting, pruning and provider exchange remain exposure gates.
+- Stack validators are frozen with 100% statement coverage: path 214 added lines,
+  metadata 234 and environment 266. Contracts through GetStack messages pass
+  pinned deterministic generation, real-base Buf checks and 14 web tests.
+  Independent slices/publication and authenticated CRUD storage remain.
+- ARCHITECT accepted ADR0019 before run contract changes. ORCH owns the metadata
+  model/structural transitions; typed activities, durable immutable apply binding,
+  trusted runner/state adapters and Temporal acceptance remain required.
+
+An isolated exact-main regression run uses a separate disposable PostgreSQL
+database; existing development volumes/roles are not modified. M1 still needs the
+real LocalStack push/plan/policy/human-approval/apply/state/audit acceptance gate.
