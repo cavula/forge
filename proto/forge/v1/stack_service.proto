@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package forge.v1;
+
+import "forge/v1/stack_get.proto";
+
+option go_package = "github.com/cavula/forge/gen/go/forge/v1;forgev1";
+
+// StackService defines organization-scoped stack operations.
+service StackService {
+  rpc GetStack(GetStackRequest) returns (GetStackResponse);
+}
