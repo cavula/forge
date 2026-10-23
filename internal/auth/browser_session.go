@@ -26,9 +26,10 @@ type BrowserSessionCreated struct {
 // BrowserSessionLookup retains private verification metadata, never tenant or
 // renewal authority. Principal returns a membership-only identity proof.
 type BrowserSessionLookup struct {
-	principal VerifiedIdentity
-	csrfHash  [32]byte
-	expiresAt time.Time
+	principal      VerifiedIdentity
+	csrfHash       [32]byte
+	credentialHash [32]byte
+	expiresAt      time.Time
 }
 
 func (session BrowserSessionLookup) Principal() VerifiedIdentity {
@@ -122,6 +123,7 @@ func (store *BrowserSessionStore) Lookup(ctx context.Context, credential string)
 		return nil, ErrBrowserSession
 	}
 	copy(session.csrfHash[:], csrf)
+	copy(session.credentialHash[:], digest)
 	return &session, nil
 }
 
