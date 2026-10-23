@@ -101,3 +101,11 @@ custom tenant setting. M0 makes neither an encryption-service nor an auth claim.
 - A workflow signal is only a wakeup; the approval deadline also bounds journal
   reads/admission. Quiescence/success requires a canonical evidence reference.
   No successful reconciliation may turn rejected admission into successful apply.
+
+- State root metadata rejects Go-compatible Unicode case aliases of version,
+  serial and lineage, preventing replay checks from disagreeing with client
+  decoding; other unknown/nested provider members remain preserved.
+- Expiry cleanup uses a separate NOLOGIN privilege role and independently
+  provisioned SET-only login. Each fixed-table helper transaction is capped at
+  100 rows; expiry RLS protects active rows independently of that helper bound.
+  Migration owner does not gain CREATEROLE; implementation/QA remain gated.
