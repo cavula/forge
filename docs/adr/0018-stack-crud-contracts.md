@@ -187,6 +187,22 @@ environment ordering and parameterize SQL. Existing rows need a documented,
 reversible migration/backfill; never fabricate a repository/version for them or
 silently expose incomplete records as runnable stacks.
 
+Root ARCHITECT approved this narrow storage refinement on 2026-10-23: migration
+00006 leaves repository/branch/directory/version/environment nullable for legacy
+rows, with either all five NULL or a complete structurally bounded configuration.
+Revision begins at positive bigint 1. Add nullable created_at without a default,
+then set now() only for future inserts; legacy unknown creation time remains NULL
+even after a full valid replacement. Never fabricate configuration or timestamps.
+Keep unfiltered org/name uniqueness, FORCE RLS/FKs and revoke runtime hard DELETE.
+Downgrade first validates an all-rows CHECK proving every row retains untouched
+legacy metadata (five NULL config fields, NULL created_at/deleted_at, revision 1);
+otherwise rollback fails without dropping data. Structural SQL shape alone never
+authorizes runnable admission; approved Go validation and authorization remain
+mandatory. State-slot/mutation guards depend on separately reviewed migration
+00007, never a missing-table fallback. Test-only cleanup may use migration-owner
+WithOrg transactions with exact fixture-org predicates; substantive assertions
+continue to use nonowner/NOBYPASSRLS roles and forced tenant policies.
+
 Create inserts the stack and `stack.created` audit event atomically. Update/Delete
 lock its active row `FOR UPDATE`, compare expected_revision, then increment it
 without overflow and append `stack.updated`/`stack.deleted` audit in that same
