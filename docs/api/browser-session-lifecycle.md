@@ -1,4 +1,4 @@
-# Initial browser-session persistence
+# Browser-session persistence
 
 `NewBrowserSessionStore(runtimePool)` requires an explicitly supplied non-owner
 runtime PostgreSQL pool. It does not discover owner credentials or configuration.
@@ -21,11 +21,28 @@ at the cookie boundary, and redacted formatting, GoString, JSON, text and loggin
 Transaction-local settings restore preexisting session settings; callers must
 avoid session-level authorization settings.
 
+`Lookup(ctx, credential)` accepts only canonical 32-byte raw base64url credentials.
+A short non-owner read-only transaction clears unrelated contexts and selects
+with an explicit credential digest and database-time expiry predicate. Its opaque
+result keeps CSRF digest and expiry private and redacts every diagnostic format.
+`Principal()` returns only issuer/subject with zero verified-token expiry: it can
+resolve an existing membership but cannot create or renew a session. Lookup
+confers no org, role or permission, and operation-time membership checks remain.
+
+`Revoke(ctx, credential)` deletes only the matching active session and commits
+`browser_session.revoked`/`success` atomically. Wrong, malformed, expired and replayed
+credentials fail generically without affecting other rows. Concurrent revocations
+have one winner. Event insertion, commit and cancellation failures roll deletion
+back; no failure claims revocation or returns a partial principal.
+
 Tests reuse isolated migrated PostgreSQL databases with runtime operations under
 FORCE RLS. Signed TLS identities prove expiry provenance and both caps; owner-only
 fixture policies/triggers prove rollback, cancellation and context isolation.
+Deferred event faults exercise commit rollback; concurrent tests use four real
+connections. Lookup principals are tested for membership resolution and rejected
+session renewal. The entire fixture database is dropped after each suite.
 
-This slice creates an initial session only. Lookup, revocation, atomic replacement,
-pruning, shared limiting, provider callbacks, cookies, Origin/CSRF and membership
+Atomic replacement, pruning, shared limiting, provider callbacks, cookies,
+Origin/CSRF and membership
 revalidation remain separate QA/CI gates before any route exposure. No renewal or
 handler is implemented, and WP-1.1/M1 remains incomplete.
