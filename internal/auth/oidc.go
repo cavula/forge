@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -29,6 +30,7 @@ func (VerifiedIdentity) MarshalJSON() ([]byte, error) { return []byte(`"[REDACTE
 // OIDCVerifier checks provider-backed identity; it does not create a membership.
 type OIDCVerifier struct {
 	issuer   string
+	clientID string
 	verifier *oidc.IDTokenVerifier
 }
 
@@ -58,7 +60,7 @@ func NewOIDCVerifier(ctx context.Context, issuer, clientID string) (*OIDCVerifie
 	if provider.Claims(&metadata) != nil || metadata.Issuer != issuer || !httpsURL(metadata.JWKS) {
 		return nil, errors.New("invalid OIDC provider metadata")
 	}
-	return &OIDCVerifier{issuer: issuer, verifier: provider.VerifierContext(ctx, &oidc.Config{ClientID: clientID})}, nil
+	return &OIDCVerifier{issuer: issuer, clientID: clientID, verifier: provider.VerifierContext(ctx, &oidc.Config{ClientID: clientID})}, nil
 }
 
 func httpsURL(raw string) bool {
@@ -76,6 +78,32 @@ func (v *OIDCVerifier) Verify(ctx context.Context, raw, expectedNonce string) (V
 	token, err := v.verifier.Verify(ctx, raw)
 	if err != nil || token.Issuer != v.issuer || token.Subject == "" || subtle.ConstantTimeCompare([]byte(token.Nonce), []byte(expectedNonce)) != 1 {
 		return VerifiedIdentity{}, errOIDC
+	}
+	var claims map[string]json.RawMessage
+	if token.Claims(&claims) != nil {
+		return VerifiedIdentity{}, errOIDC
+	}
+	// The SDK decodes registered claims into a struct. Reject case-folded names
+	// so JSON struct matching cannot substitute or shadow the actual OIDC claim.
+	for name, required := range map[string]bool{"iss": true, "sub": true, "aud": true, "exp": true, "nonce": true, "iat": false, "nbf": false} {
+		if _, present := claims[name]; required && !present {
+			return VerifiedIdentity{}, errOIDC
+		}
+		for actual := range claims {
+			if actual != name && strings.EqualFold(actual, name) {
+				return VerifiedIdentity{}, errOIDC
+			}
+		}
+	}
+	partyClaim, present := claims["azp"] // OIDC claim names are case-sensitive.
+	if len(token.Audience) > 1 && !present {
+		return VerifiedIdentity{}, errOIDC
+	}
+	if present {
+		var party string
+		if json.Unmarshal(partyClaim, &party) != nil || party != v.clientID {
+			return VerifiedIdentity{}, errOIDC
+		}
 	}
 	return VerifiedIdentity{issuer: token.Issuer, subject: token.Subject}, nil
 }

@@ -23,6 +23,17 @@ M2 and later milestones remain outside the current gate.
 
 ## M1 choices
 
+- Security/monitoring framework: organize the existing requirements with NIST
+  CSF 2.0 and the OTel signal model in CONTROLS.md. This is a reversible evidence
+  baseline, not certification. Deployment profiles, telemetry backend/retention,
+  alert destinations and numeric SLOs remain operator choices at M2/M6 gates.
+- Operator bootstrap is insert-only per supplied new organization UUID; it does
+  not require a globally empty database or disable RLS. Existing volumes need a
+  reviewed backup/restore into a freshly provisioned cluster; application startup
+  never performs it. Automatic review rejected changing existing database roles;
+  subsequent testing found PostgreSQL's bootstrap superuser cannot be demoted.
+  Validate the corrected fresh-cluster provisioning with a disposable fixture.
+
 - API-token format: `forge_v1.<selector>.<secret>` with 128-bit random selector,
   256-bit secret and SHA-256 over the entire canonical token (ADR0010). No
   token persistence or public authentication is provided by this primitive.
@@ -58,3 +69,20 @@ custom tenant setting. M0 makes neither an encryption-service nor an auth claim.
 - Session expiry provenance belongs to the future opaque verified-identity helper;
   the schema alone cannot verify an issuer, subject or ID-token expiry. Routes
   remain unbound until lifecycle, CSRF, limiting and independent security gates pass.
+
+## M1 integration choices — 2026-10-23
+
+- Session replacement is a strict primitive: a fresh OIDC expiry proof and exactly
+  one previous digest row are required; expired rows can be replaced. Unknown or
+  replayed credentials fail atomically. A future handler clears stale cookies and
+  restarts login; the primitive never silently falls back to initial creation.
+- Environment values reject surrounding Unicode whitespace under ADR0018 without
+  trimming; empty values and interior spaces remain valid. Normalization copies
+  known fields, preserving protobuf compatibility by ignoring unknown fields.
+- Repository hosts use ADR0018's explicit nontransitional IDNA profile with exact
+  ASCII equality, DNS-length checks and reserved-hyphen rules. Digit/dot-only hosts
+  must be canonical IP addresses. No DNS lookup or silent host rewriting occurs.
+- ADR0019 chooses admin-only interactive approval, permits admin self-approval,
+  requires human approval for every M1 plan, and permits one active run per stack.
+  Fixed timeout defaults and policy-bundle change invalidation are reversible;
+  real runner provenance, state fencing and operator reconciliation remain gates.
