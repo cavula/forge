@@ -44,7 +44,7 @@ test:
 	opa test --coverage --threshold=70 policies > policy-coverage.json
 
 integration:
-	TEST_DATABASE_URL='$(TEST_DATABASE_URL)' go test -race -count=1 -v ./internal/database
+	TEST_DATABASE_URL='$(TEST_DATABASE_URL)' go test -race -count=1 -v ./internal/database ./internal/auth
 
 migrate:
 	DATABASE_URL='$(DATABASE_URL)' go run ./cmd/migrate
