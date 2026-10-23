@@ -52,3 +52,20 @@ M2 and later milestones remain outside the current gate.
 Accepted choices are reversible via a new migration or approved ADR. Plaintext
 schema constraints cannot prove encryption; direct SQL credentials can select the
 custom tenant setting. M0 makes neither an encryption-service nor an auth claim.
+
+## M1 implementation choices — 2026-10-23
+
+- Stacked helper prerequisites: use a feature integration branch containing only
+  reviewed slices as the base for small dependent draft PRs. Do not merge that
+  composite to main; retarget and remeasure after prerequisites merge.
+- Stack CRUD configuration/revision/environment semantics are accepted in ADR0018.
+  Preserve existing wire fields and use BigInt for revisions in TypeScript.
+  Legacy incomplete rows need a reversible migration choice before CRUD storage;
+  do not invent repository/version values or claim those rows are runnable.
+- Auth records use a separate encryption domain and digest-scoped forced RLS,
+  with a 1 KiB ciphertext limit. Mounted key loading rejects symlinks, including
+  projected symlink mounts; operators must provide a protected regular file.
+  Broader platform-specific mount support requires its own reviewed loader.
+- Session expiry provenance belongs to the future opaque verified-identity helper;
+  the schema alone cannot verify an issuer, subject or ID-token expiry. Routes
+  remain unbound until lifecycle, CSRF, limiting and independent security gates pass.
