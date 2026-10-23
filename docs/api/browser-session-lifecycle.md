@@ -35,14 +35,34 @@ credentials fail generically without affecting other rows. Concurrent revocation
 have one winner. Event insertion, commit and cancellation failures roll deletion
 back; no failure claims revocation or returns a partial principal.
 
+`Replace(ctx, oldCredential, freshIdentity)` is a strict storage primitive. It
+requires a canonical old credential naming exactly one row, active or expired,
+and a fresh OIDC-derived expiry proof. It deletes under only the old digest,
+explicitly clears that context, installs only an independently minted new digest,
+and inserts the new session with the same verified database-time expiry cap.
+`browser_session.replaced` records the actual old-row deletion and
+`browser_session.created` records insertion; both success events and both row
+mutations commit together before any new opaque value returns. Old identity and
+expiry never establish the new session. Concurrent replacements have one winner.
+
+Unknown, replayed or malformed old credentials fail without fallback creation,
+events or other mutations. A future handler must clear a stale cookie and restart
+a new login flow; `Create` remains the separate path when no old cookie exists.
+This reversible strict choice implements ADR0016's previous-session deletion
+without claiming a deletion that did not occur. Either event's insertion failure,
+deferred commit rejection or transaction cancellation rolls deletion back and
+retains the old row. Failures return no partial credential; membership lookup
+proofs cannot replace sessions.
+
 Tests reuse isolated migrated PostgreSQL databases with runtime operations under
 FORCE RLS. Signed TLS identities prove expiry provenance and both caps; owner-only
 fixture policies/triggers prove rollback, cancellation and context isolation.
 Deferred event faults exercise commit rollback; concurrent tests use four real
 connections. Lookup principals are tested for membership resolution and rejected
 session renewal. The entire fixture database is dropped after each suite.
+Replacement tests cover active/expired rows, fresh identity/expiry, both event
+positions, commit rollback, cancellation, independent values and context switching.
 
-Atomic replacement, pruning, shared limiting, provider callbacks, cookies,
-Origin/CSRF and membership
+Pruning, shared limiting, provider callbacks, cookies, Origin/CSRF and membership
 revalidation remain separate QA/CI gates before any route exposure. No renewal or
 handler is implemented, and WP-1.1/M1 remains incomplete.
