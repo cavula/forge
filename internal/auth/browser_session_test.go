@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +18,7 @@ import (
 	"github.com/cavula/forge/internal/testutil"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -28,10 +32,18 @@ func TestBrowserSessionRejectsMissingProofAndPool(t *testing.T) {
 				t.Fatal("fabricated proof returned credentials")
 			}
 		}
+		for _, invalid := range []string{"", strings.Repeat("A", 42) + "B", strings.Repeat("A", 43) + "="} {
+			if result, err := store.Lookup(context.Background(), invalid); result != nil || err != ErrBrowserSession {
+				t.Fatal("invalid lookup proof accepted")
+			}
+			if store.Revoke(context.Background(), invalid) != ErrBrowserSession {
+				t.Fatal("invalid revocation proof accepted")
+			}
+		}
 	}
 }
 
-func TestBrowserSessionCreatePostgres(t *testing.T) {
+func TestBrowserSessionLifecyclePostgres(t *testing.T) {
 	runtimeURL, ownerURL := os.Getenv("TEST_DATABASE_URL"), os.Getenv("DATABASE_URL")
 	if runtimeURL == "" || ownerURL == "" {
 		t.Skip("disposable PostgreSQL runtime and owner fixture required")
@@ -64,6 +76,13 @@ func TestBrowserSessionCreatePostgres(t *testing.T) {
   IF current_setting('forge.test_session_fault',true)='cancel' THEN PERFORM pg_sleep(10); END IF;
  END IF; RETURN NEW; END $$`)
 	exec(owner, "CREATE TRIGGER session_fixture_fault BEFORE INSERT ON auth_security_events FOR EACH ROW EXECUTE FUNCTION session_fixture_fault()")
+	exec(owner, `CREATE FUNCTION session_revoke_fixture_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+ IF NEW.action='browser_session.revoked' THEN
+  IF current_setting('forge.test_revoke_fault',true)=TG_ARGV[0] THEN RAISE EXCEPTION 'fixture fault'; END IF;
+  IF TG_ARGV[0]='reject' AND current_setting('forge.test_revoke_fault',true)='cancel' THEN PERFORM pg_sleep(10); END IF;
+ END IF; RETURN NEW; END $$`)
+	exec(owner, "CREATE TRIGGER session_revoke_fixture_insert BEFORE INSERT ON auth_security_events FOR EACH ROW EXECUTE FUNCTION session_revoke_fixture_fault('reject')")
+	exec(owner, "CREATE CONSTRAINT TRIGGER session_revoke_fixture_commit AFTER INSERT ON auth_security_events DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION session_revoke_fixture_fault('commit')")
 	count := func(table string) int {
 		t.Helper()
 		var result int
@@ -155,10 +174,17 @@ func TestBrowserSessionCreatePostgres(t *testing.T) {
 	})
 	t.Run("expired proofs cannot create or renew a session", func(t *testing.T) {
 		expiring, _ := proof(time.Now().Add(2 * time.Second))
+		expiredSession := create(expiring)
 		time.Sleep(time.Until(expiring.verifiedExpiry) + time.Millisecond)
 		sessions, events := count("browser_sessions"), count("auth_security_events")
 		if result, err := store.Create(ctx, expiring); result != nil || err != ErrBrowserSession {
 			t.Fatal("expired verified proof created session")
+		}
+		if result, err := store.Lookup(ctx, expiredSession.Credential.Reveal()); result != nil || err != ErrBrowserSession {
+			t.Fatal("expired session lookup succeeded")
+		}
+		if store.Revoke(ctx, expiredSession.Credential.Reveal()) != ErrBrowserSession {
+			t.Fatal("expired session revocation succeeded")
 		}
 		if count("browser_sessions") != sessions || count("auth_security_events") != events {
 			t.Fatal("expired proof mutated storage")
@@ -220,6 +246,9 @@ func TestBrowserSessionCreatePostgres(t *testing.T) {
 			t.Fatal("inherited context blocked valid session creation")
 		}
 		digest, _ := loginFlowDigest(created.Credential.Reveal())
+		if result, err := store.Lookup(ctx, created.Credential.Reveal()); result == nil || err != nil {
+			t.Fatal("inherited context blocked valid lookup")
+		}
 		for _, rollback := range []bool{false, true} {
 			tx, err := store.begin(ctx, digest)
 			if err != nil {
@@ -240,6 +269,9 @@ func TestBrowserSessionCreatePostgres(t *testing.T) {
 				_ = tx.Commit(ctx)
 			}
 		}
+		if store.Revoke(ctx, created.Credential.Reveal()) != nil {
+			t.Fatal("inherited context blocked revocation")
+		}
 		exec(pool, "RESET ALL")
 		reset()
 		if _, err := flowStore.Consume(ctx, flow.State.Reveal(), flow.Binding.Reveal()); err != nil {
@@ -253,5 +285,168 @@ func TestBrowserSessionCreatePostgres(t *testing.T) {
 		if result, err := unavailable.Create(ctx, identity); result != nil || err != ErrBrowserSession {
 			t.Fatal("unavailable database returned credentials")
 		}
+		if result, err := unavailable.Lookup(ctx, strings.Repeat("A", 43)); result != nil || err != ErrBrowserSession {
+			t.Fatal("closed pool returned lookup proof")
+		}
+		if unavailable.Revoke(ctx, strings.Repeat("A", 43)) != ErrBrowserSession {
+			t.Fatal("closed pool accepted revocation")
+		}
+	})
+	t.Run("lookup returns redacted membership proof without renewal authority", func(t *testing.T) {
+		created := create(identity)
+		found, err := store.Lookup(ctx, created.Credential.Reveal())
+		if err != nil || found == nil {
+			t.Fatal("active session lookup failed")
+		}
+		principal := found.Principal()
+		csrf, _ := loginFlowDigest(created.CSRF.Reveal())
+		if principal.issuer != identity.issuer || principal.subject != identity.subject || !principal.verifiedExpiry.IsZero() || principal.usableForSession(time.Now()) || !bytes.Equal(found.csrfHash[:], csrf) || !found.expiresAt.Equal(created.ExpiresAt) {
+			t.Fatal("lookup manufactured authority or lost metadata")
+		}
+		digest, _ := loginFlowDigest(created.Credential.Reveal())
+		readTx, err := store.beginTx(ctx, digest, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+		if err != nil {
+			t.Fatal("read-only lookup transaction failed")
+		}
+		var readOnly bool
+		if readTx.QueryRow(ctx, "SELECT current_setting('transaction_read_only')='on'").Scan(&readOnly) != nil || !readOnly {
+			t.Fatal("lookup transaction was writable")
+		}
+		_, err = readTx.Exec(ctx, "DELETE FROM browser_sessions WHERE credential_hash=$1", digest)
+		_ = readTx.Rollback(ctx)
+		if pgError, ok := err.(*pgconn.PgError); !ok || pgError.Code != "25006" {
+			t.Fatal("read-only lookup context permitted mutation")
+		}
+		reset()
+		sessions, events := count("browser_sessions"), count("auth_security_events")
+		if result, err := store.Create(ctx, principal); result != nil || err != ErrBrowserSession {
+			t.Fatal("session lookup proof renewed a session")
+		}
+		orgID, _ := loginFlowUUID()
+		if database.WithOrg(ctx, pool, orgID, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, "INSERT INTO orgs(id,name) VALUES($1,'membership fixture')", orgID); err != nil {
+				return err
+			}
+			_, err := tx.Exec(ctx, "INSERT INTO users(org_id,id,issuer,subject,display_name) VALUES($1,$1,$2,$3,'member')", orgID, identity.issuer, identity.subject)
+			return err
+		}) != nil {
+			t.Fatal("membership fixture failed")
+		}
+		if user, err := ResolveMembership(ctx, pool, principal, orgID); err != nil || user == nil || user.GetOrgId() != orgID {
+			t.Fatal("lookup principal could not resolve existing membership")
+		}
+		var output bytes.Buffer
+		_, _ = fmt.Fprintf(&output, "%v %+v %#v", found, *found, found)
+		output.WriteString(found.GoString())
+		encoded, _ := json.Marshal(found)
+		output.Write(encoded)
+		encoded, _ = found.MarshalText()
+		output.Write(encoded)
+		slog.New(slog.NewJSONHandler(&output, nil)).Info("lookup", "session", found)
+		testutil.NoSecrets(t, output.String(), identity.issuer, identity.subject, rawToken, created.Credential.Reveal(), created.CSRF.Reveal(), hex.EncodeToString(csrf), fmt.Sprint(found.csrfHash), fmt.Sprintf("%#v", found.csrfHash), found.expiresAt.String())
+		if count("browser_sessions") != sessions || count("auth_security_events") != events {
+			t.Fatal("lookup or rejected renewal mutated storage")
+		}
+		reset()
+	})
+	t.Run("wrong proofs preserve sessions; successful revocation rejects replay", func(t *testing.T) {
+		created, other := create(identity), create(identity)
+		sessions, events := count("browser_sessions"), count("auth_security_events")
+		for _, invalid := range []string{"", created.Credential.Reveal() + "=", strings.Repeat("A", 43)} {
+			if result, err := store.Lookup(ctx, invalid); result != nil || err != ErrBrowserSession {
+				t.Fatal("wrong credential returned principal")
+			}
+			if store.Revoke(ctx, invalid) != ErrBrowserSession {
+				t.Fatal("wrong credential revoked session")
+			}
+			reset()
+		}
+		if store.Revoke(ctx, created.Credential.Reveal()) != nil || store.Revoke(ctx, created.Credential.Reveal()) != ErrBrowserSession {
+			t.Fatal("revocation or replay outcome incorrect")
+		}
+		if result, err := store.Lookup(ctx, created.Credential.Reveal()); result != nil || err != ErrBrowserSession {
+			t.Fatal("revoked session remained usable")
+		}
+		if result, err := store.Lookup(ctx, other.Credential.Reveal()); result == nil || err != nil {
+			t.Fatal("unrelated session affected")
+		}
+		if count("browser_sessions") != sessions-1 || count("auth_security_events") != events+1 {
+			t.Fatal("revocation event/mutation count incorrect")
+		}
+		reset()
+	})
+	t.Run("simultaneous revocations commit once", func(t *testing.T) {
+		created := create(identity)
+		concurrent, _ := NewBrowserSessionStore(flowPool(t, runtimeURL, 4))
+		sessions, events := count("browser_sessions"), count("auth_security_events")
+		var winners atomic.Int32
+		var group sync.WaitGroup
+		barrier := make(chan struct{})
+		for range 12 {
+			group.Go(func() {
+				<-barrier
+				err := concurrent.Revoke(ctx, created.Credential.Reveal())
+				if err == nil {
+					winners.Add(1)
+				} else if err != ErrBrowserSession {
+					t.Error("nongeneric concurrent failure")
+				}
+			})
+		}
+		close(barrier)
+		group.Wait()
+		if winners.Load() != 1 || count("browser_sessions") != sessions-1 || count("auth_security_events") != events+1 {
+			t.Fatal("concurrent revocation did not commit exactly once")
+		}
+		reset()
+	})
+	t.Run("revocation event insertion, commit and cancellation failures roll back", func(t *testing.T) {
+		for _, mode := range []string{"reject", "commit", "cancel"} {
+			created := create(identity)
+			sessions, events := count("browser_sessions"), count("auth_security_events")
+			exec(pool, "SELECT set_config('forge.test_revoke_fault',$1,false)", mode)
+			requestCtx, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
+			err := store.Revoke(requestCtx, created.Credential.Reveal())
+			cancel()
+			if err != ErrBrowserSession {
+				t.Fatal("failed revocation claimed success")
+			}
+			testutil.NoSecrets(t, err.Error(), created.Credential.Reveal(), created.CSRF.Reveal(), identity.issuer, identity.subject)
+			exec(pool, "RESET forge.test_revoke_fault")
+			reset()
+			if count("browser_sessions") != sessions || count("auth_security_events") != events {
+				t.Fatal("failed revocation partially committed")
+			}
+			if result, err := store.Lookup(ctx, created.Credential.Reveal()); result == nil || err != nil {
+				t.Fatal("failed revocation burned valid session")
+			}
+			if store.Revoke(ctx, created.Credential.Reveal()) != nil {
+				t.Fatal("retry after rollback failed")
+			}
+			reset()
+		}
+	})
+	t.Run("lookup cancellation releases context and preserves session", func(t *testing.T) {
+		created := create(identity)
+		lock, err := owner.Begin(ctx)
+		if err != nil {
+			t.Fatal("lookup lock fixture failed")
+		}
+		defer func() { _ = lock.Rollback(ctx) }()
+		if _, err := lock.Exec(ctx, "LOCK TABLE browser_sessions IN ACCESS EXCLUSIVE MODE"); err != nil {
+			t.Fatal("lookup lock fixture failed")
+		}
+		requestCtx, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
+		result, err := store.Lookup(requestCtx, created.Credential.Reveal())
+		cancel()
+		_ = lock.Rollback(ctx)
+		if result != nil || err != ErrBrowserSession {
+			t.Fatal("canceled lookup returned partial proof")
+		}
+		reset()
+		if result, err := store.Lookup(ctx, created.Credential.Reveal()); result == nil || err != nil {
+			t.Fatal("canceled lookup damaged session")
+		}
+		reset()
 	})
 }

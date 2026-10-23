@@ -7,6 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -19,6 +22,30 @@ type BrowserSessionCreated struct {
 	Credential, CSRF LoginFlowValue
 	ExpiresAt        time.Time
 }
+
+// BrowserSessionLookup retains private verification metadata, never tenant or
+// renewal authority. Principal returns a membership-only identity proof.
+type BrowserSessionLookup struct {
+	principal VerifiedIdentity
+	csrfHash  [32]byte
+	expiresAt time.Time
+}
+
+func (session BrowserSessionLookup) Principal() VerifiedIdentity {
+	return VerifiedIdentity{issuer: session.principal.issuer, subject: session.principal.subject}
+}
+func (BrowserSessionLookup) String() string           { return "[redacted browser session]" }
+func (session BrowserSessionLookup) GoString() string { return session.String() }
+func (session BrowserSessionLookup) Format(state fmt.State, _ rune) {
+	_, _ = io.WriteString(state, session.String())
+}
+func (session BrowserSessionLookup) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + session.String() + `"`), nil
+}
+func (session BrowserSessionLookup) MarshalText() ([]byte, error) {
+	return []byte(session.String()), nil
+}
+func (session BrowserSessionLookup) LogValue() slog.Value { return slog.StringValue(session.String()) }
 
 // BrowserSessionStore requires an explicitly supplied non-owner runtime pool.
 // It neither loads credentials nor discovers an owner database connection.
@@ -75,8 +102,62 @@ func (store *BrowserSessionStore) Create(ctx context.Context, identity VerifiedI
 		LoginFlowValue{base64.RawURLEncoding.EncodeToString(material[1][:])}, expiry}, nil
 }
 
+// Lookup authenticates one active credential and returns no token-expiry proof.
+func (store *BrowserSessionStore) Lookup(ctx context.Context, credential string) (*BrowserSessionLookup, error) {
+	digest, valid := loginFlowDigest(credential)
+	if store == nil || store.pool == nil || !valid {
+		return nil, ErrBrowserSession
+	}
+	tx, err := store.beginTx(ctx, digest, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, ErrBrowserSession
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	var session BrowserSessionLookup
+	var csrf []byte
+	err = tx.QueryRow(ctx, `SELECT issuer,subject,csrf_hash,expires_at FROM browser_sessions
+ WHERE credential_hash=$1 AND expires_at>now()`, digest).
+		Scan(&session.principal.issuer, &session.principal.subject, &csrf, &session.expiresAt)
+	if err != nil || session.principal.issuer == "" || session.principal.subject == "" || len(csrf) != 32 || tx.Commit(ctx) != nil {
+		return nil, ErrBrowserSession
+	}
+	copy(session.csrfHash[:], csrf)
+	return &session, nil
+}
+
+// Revoke commits the active session's deletion and success event together.
+func (store *BrowserSessionStore) Revoke(ctx context.Context, credential string) error {
+	digest, valid := loginFlowDigest(credential)
+	if store == nil || store.pool == nil || !valid {
+		return ErrBrowserSession
+	}
+	eventID, err := loginFlowUUID()
+	if err != nil {
+		return ErrBrowserSession
+	}
+	tx, err := store.begin(ctx, digest)
+	if err != nil {
+		return ErrBrowserSession
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	tag, err := tx.Exec(ctx, `DELETE FROM browser_sessions WHERE credential_hash=$1 AND expires_at>now()`, digest)
+	if err != nil || tag.RowsAffected() != 1 {
+		return ErrBrowserSession
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO auth_security_events(id,action,outcome)
+ VALUES($1,'browser_session.revoked','success')`, eventID)
+	if err != nil || tx.Commit(ctx) != nil {
+		return ErrBrowserSession
+	}
+	return nil
+}
+
 func (store *BrowserSessionStore) begin(ctx context.Context, digest []byte) (pgx.Tx, error) {
-	tx, err := store.pool.Begin(ctx)
+	return store.beginTx(ctx, digest, pgx.TxOptions{})
+}
+
+func (store *BrowserSessionStore) beginTx(ctx context.Context, digest []byte, options pgx.TxOptions) (pgx.Tx, error) {
+	tx, err := store.pool.BeginTx(ctx, options)
 	if err != nil {
 		return nil, ErrBrowserSession
 	}
