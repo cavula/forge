@@ -409,20 +409,8 @@ func TestLoginFlowPostgres(t *testing.T) {
 		exec(pool, "RESET ALL")
 		reset()
 		consume(store, start, true)
-		if database.WithOrg(ctx, pool, id, func(tx pgx.Tx) error {
-			for _, table := range []string{"stacks", "users", "orgs"} {
-				column := "org_id"
-				if table == "orgs" {
-					column = "id"
-				}
-				if _, err := tx.Exec(ctx, "DELETE FROM "+table+" WHERE "+column+"=$1", id); err != nil {
-					return err
-				}
-			}
-			return nil
-		}) != nil {
-			t.Fatal("tenant fixture cleanup failed")
-		}
+		// flowDatabase owns this entire disposable database and drops it after
+		// pools close. Runtime privileges deliberately exclude stack hard DELETE.
 	})
 	t.Run("database acquisition failure returns no partial credentials", func(t *testing.T) {
 		closed := flowPool(t, url, 1)

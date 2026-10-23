@@ -89,6 +89,7 @@ func loginStorageTx(pool *pgxpool.Pool, state, binding string, fn func(pgx.Tx) e
 func TestLoginFlowStorageRLS(t *testing.T) {
 	ctx := context.Background()
 	pool := loginStoragePool(t)
+	owner := storageFixtureOwner(t)
 	first, second := loginStorageArgs(t), loginStorageArgs(t)
 	state, binding := hex.EncodeToString(first[1].([]byte)), hex.EncodeToString(first[2].([]byte))
 	orgID := loginStorageID(t)
@@ -107,7 +108,7 @@ func TestLoginFlowStorageRLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := WithOrg(ctx, pool, orgID, func(tx pgx.Tx) error {
+		if err := WithOrg(ctx, owner, orgID, func(tx pgx.Tx) error {
 			for _, table := range []string{"stacks", "users", "orgs"} {
 				column := "org_id"
 				if table == "orgs" {

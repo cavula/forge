@@ -67,6 +67,7 @@ func browserStorageReset(t *testing.T, pool *pgxpool.Pool) {
 func TestBrowserSessionStorageRLS(t *testing.T) {
 	ctx := context.Background()
 	pool := browserStoragePool(t)
+	owner := storageFixtureOwner(t)
 	first, second, flow := browserStorageArgs(t), browserStorageArgs(t), loginStorageArgs(t)
 	hash := hex.EncodeToString(first[1].([]byte))
 	org := loginStorageID(t)
@@ -83,7 +84,7 @@ func TestBrowserSessionStorageRLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := WithOrg(ctx, pool, org, func(tx pgx.Tx) error {
+		if err := WithOrg(ctx, owner, org, func(tx pgx.Tx) error {
 			for _, sql := range []string{"DELETE FROM stacks WHERE org_id=$1", "DELETE FROM users WHERE org_id=$1", "DELETE FROM orgs WHERE id=$1"} {
 				if _, err := tx.Exec(ctx, sql, org); err != nil {
 					return err
