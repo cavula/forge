@@ -5,6 +5,7 @@ COMPOSE := docker compose -f deploy/compose/compose.yaml
 PNPM := pnpm
 DATABASE_URL ?= postgres://forge_owner:forge-owner-dev-only@localhost:5432/forge?sslmode=disable
 TEST_DATABASE_URL ?= postgres://forge_app:forge-dev-only@localhost:5432/forge?sslmode=disable
+TEST_BOOTSTRAP_OWNER_DATABASE_URL ?= $(DATABASE_URL)
 .PHONY: dev down tools generate lint test integration build check breaking migrate smoke web-install
 
 dev:
@@ -44,7 +45,7 @@ test:
 	opa test --coverage --threshold=70 policies > policy-coverage.json
 
 integration:
-	TEST_DATABASE_URL='$(TEST_DATABASE_URL)' go test -race -count=1 -v ./internal/database
+	DATABASE_URL='$(DATABASE_URL)' TEST_DATABASE_URL='$(TEST_DATABASE_URL)' TEST_BOOTSTRAP_OWNER_DATABASE_URL='$(TEST_BOOTSTRAP_OWNER_DATABASE_URL)' go test -race -count=1 -v ./internal/database ./internal/auth ./internal/orgs
 
 migrate:
 	DATABASE_URL='$(DATABASE_URL)' go run ./cmd/migrate
