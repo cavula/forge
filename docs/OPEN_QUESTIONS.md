@@ -23,6 +23,10 @@ M2 and later milestones remain outside the current gate.
 
 ## M1 choices
 
+- API-token format: `forge_v1.<selector>.<secret>` with 128-bit random selector,
+  256-bit secret and SHA-256 over the entire canonical token (ADR0010). No
+  token persistence or public authentication is provided by this primitive.
+
 - OIDC provider and initial administrator: keep issuer/client configuration
   explicit; no public auto-enrollment or request-supplied admin role. An operator
   bootstrap and verified identity-to-membership flow require their own slice.

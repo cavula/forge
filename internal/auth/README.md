@@ -5,3 +5,9 @@ an authenticated, current organization membership before evaluating `Allows`.
 There are no login, membership administration or API-token endpoints yet.
 Ordinary metadata/resource permissions do not grant state, secret, credential
 or run-approval access. Unknown roles and actions deny, including for admins.
+
+ADR0010 adds internal credential primitives: `NewToken`, `ParseToken` and
+`TokenVerifier.Matches`. Only `Token.Reveal` returns plaintext for a future
+one-time issuance response. Tokens/verifiers redact normal formatting and JSON.
+Matching verifies a credential only; expiry, revocation, scopes and current
+membership must be enforced before public authentication is exposed.
