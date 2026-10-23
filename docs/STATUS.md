@@ -27,7 +27,10 @@ Local checks pass: PostgreSQL16 migration up/down/up and non-owner isolation;
 Go race tests (auth 100%, database 87.5%, platform/testutil 100%); Go/TypeScript
 lint and builds; web tests; unchanged protobuf regeneration and buf breaking;
 govulncheck; rebuilt Compose `make dev` and HTTP/web smoke tests.
-Hosted CI is the remaining publication gate. No M1 WP is DONE.
+Hosted [CI run 39840689065](https://github.com/cavula/forge/actions/runs/39840689065)
+passed checks and Compose/image scans; roadmap integrity also passed.
+[PR #10](https://github.com/cavula/forge/pull/10) contains this first slice.
+No M1 WP is DONE; full WP-1.1 acceptance still requires login and token flows.
 Each PR remains below 500 added/deleted lines, including generated files.
 
 M1 final gate: push → PR plan comment → policy result → approve → apply to
