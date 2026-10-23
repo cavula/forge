@@ -3,11 +3,17 @@
 Current gate: **M1 authorized on 2026-10-22; implementation in progress.
 Stop at the MVP e2e checkpoint before M2. M0 is complete and merged.**
 
+Execution strategy: [agent-assisted roadmap](EXECUTION_PLAN.md). The user clarified
+that BRIEF's durations estimate human effort. Use parallel implementation and
+review with a seven-day M1 stretch target, full scope and unchanged security
+gates. The target is not a measured delivery forecast. Do not repeat the original
+five-week allowance as an established agent ETA; forecast from acceptance evidence.
+
 ## M1 work packages
 
 | WP | Owner | Dependencies | Progress / acceptance gate |
 | --- | --- | --- | --- |
-| WP-1.1 | CORE-BACKEND (root), ARCHITECT, QA-SECURITY | M0; ADR0009/0010/0011 | IN PROGRESS: merged role/membership and token primitives; verified OIDC tests/QA pass locally. Browser login, administration and token persistence/endpoints remain. |
+| WP-1.1 | CORE-BACKEND (root), ARCHITECT, QA-SECURITY | M0; ADR0009/0010/0011 | IN PROGRESS: merged role/membership and token primitives; OIDC verification merged with passing tests/QA. Browser login, administration and token persistence/endpoints remain. |
 | WP-1.2 | CORE-BACKEND (root) | WP-1.1; approved RPC ADR | QUEUED: authenticated stack CRUD and integration tests. |
 | WP-1.3 | CORE-BACKEND (root), QA-SECURITY | WP-1.1/1.2; encryption ADR | QUEUED: tofu init, encrypted/versioned state, lock contention tests. |
 | WP-1.4 | CORE-BACKEND (root), QA-SECURITY | WP-1.2/1.5 | QUEUED: verified GitHub/GitLab webhooks, PR comments/statuses. |
@@ -46,8 +52,9 @@ are bounded and redirects blocked. Verified identity is opaque and diagnostics
 redact it. Real TLS/JWKS negative tests pass with auth coverage 100%; QA-SECURITY
 approved after a diagnostic leak fix. Browser state/PKCE, one-use flow records,
 sessions, CSRF, current membership and rate limits remain before exposing login.
-The first current-user message contract is generated and tested locally; no
-identity service handler is bound. Hosted CI for these slices is pending.
+OIDC verification and current-user message/client contracts are included in main
+through PR #15. The older stacked PR #14 has the same message commit and is
+superseded. No identity service handler is bound; browser login is unfinished.
 The user authorized continuous work and independent/stacked PRs without waiting
 for each merge; merges remain under user control. M1 scope and gates are intact.
 
@@ -55,8 +62,14 @@ Starter-policy slice (ADR0012): ARCHITECT approved ten stable deny/warn/approval
 controls after semantic CIDR and malformed-unknown-mask regression fixes. Local
 OPA 1.21.3 strict checks and 59 tests pass with 100% Rego coverage. Make/CI now
 install the pinned checksum-verified CLI, compile strictly and enforce >=70%
-coverage. Hosted CI is pending. Embedded SDK evaluation, resource/error limits,
+coverage. PR #12 merged after hosted checks and Compose/image scans passed
+(run 39947946196). Embedded SDK evaluation, resource/error limits,
 trusted saved-plan binding and workflow approval enforcement remain WP-1.9 gates.
+
+Publication note: PR #15 merged the OIDC and message slices together with 673
+changed lines. The individual proposed slices were below 500, but this combined
+merge exceeded the original rule. Future dependent PRs must be retargeted after
+parent merges and checked against main before review; this is not a new exception.
 
 M1 final gate: push → PR plan comment → policy result → approve → apply to
 LocalStack → versioned state → audit entries. This flow is not implemented yet.
