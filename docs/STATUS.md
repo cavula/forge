@@ -158,3 +158,39 @@ identities, tenant-local users, key providers and version pin maintenance.
 Authentication, encrypted state operations, workflows and executable runners
 remain M1 or later work. M0 provides their contracts/schema/security decisions,
 not their runtime implementation. The user subsequently authorized M1 above.
+
+## M1 implementation cycle — 2026-10-23
+
+This dated record supersedes earlier queue snapshots; it does not mark a whole
+work package complete. User merges remain separate from implementation progress.
+
+| Scope | Owner | Dependencies | Evidence / next acceptance gate |
+| --- | --- | --- | --- |
+| WP-1.1 membership and identity RPC | CORE-BACKEND, ARCHITECT, QA-SECURITY | PRs #17/#18 | Both hosted checks, Compose/image scans and roadmap integrity pass; ready for review. No handler is bound. |
+| WP-1.1 operator bootstrap | CORE-BACKEND, QA-SECURITY | PR #22 | Hosted CI passes; fresh-cluster non-superuser owner provisioning tested. Existing volumes unchanged. |
+| WP-1.1 browser design / OIDC claims | ARCHITECT, QA-SECURITY | PR #24, ADR0016 | Ready, hosted CI passes. Signed-token tests reject noncanonical required claims and invalid authorized party. Browser routes remain unbound. |
+| WP-1.1 flow persistence / encryption | CORE-BACKEND, QA-SECURITY | #25 on #17; #26 on #23 | Hosted runs 40022064937 / 40022152709 pass. Draft dependencies must merge before retargeting. |
+| WP-1.1 one-use flow lifecycle | CORE-BACKEND, QA-SECURITY | Schema, auth encryption, mounted key | Create-only slice: 450 lines; consume increment: 249 changed lines. Independent PostgreSQL race tests prove replay exclusion, rollback, cancellation and redaction. Publication/integration remain. |
+| WP-1.1 session persistence | CORE-BACKEND session agent, ARCHITECT | ADR0016, flow schema | IN PROGRESS: digest-scoped RLS, bounded expiry and anonymous append-only events. Independent QA and lifecycle/CSRF/limiter gates remain. |
+| WP-1.2 stack contracts | CORE-BACKEND contract agent, ARCHITECT | Accepted ADR0018; auth before exposure | Environment type and additive Stack fields pass deterministic generation, real-base Buf breaking, Go/TS wire tests. Configuration/messages/service and authenticated CRUD remain. |
+| WP-1.3 / 1.8 encryption | CORE-BACKEND, QA-SECURITY | #19; #23 on #19 | Both CI green; protected key loader rejects symlinks, insecure mode and malformed material. State/secret persistence and rotation remain. |
+| WP-1.9 policy evaluator | POLICY, QA-SECURITY | #20; #21 on #20 | Hosted CI green, 97.8% local Go coverage. Saved-plan/workflow approval binding remains. |
+| Execution / controls | PLATFORM, ARCHITECT | PR #16 | Hosted CI green; full scope and security gates preserved. Seven-day M1 target remains a stretch target. |
+
+Stack contract increments each remain below 500 changed lines, including generated
+clients. ADR0018 approves the exact increments before implementation. Revisions
+use uint64/BigInt without conversion through JavaScript Number; Stack fields 1–9
+and published descriptor filenames are preserved. A contract is not CRUD acceptance.
+
+Flow helper review passed real PostgreSQL non-owner tests with pooled-context reset,
+wrong-proof non-consumption, concurrent single winner, ciphertext tampering and
+audit-failure rollback. The consume transaction commits before decryption, so a
+failed exchange cannot reuse the same callback. No provider exchange or session
+has been exposed. Auth business coverage is 95.1%; the isolated Create slice is
+90.5%. New session tests use only the disposable fixture on port 55433.
+
+Unmerged prerequisites may be assembled on a feature integration branch solely as
+a testable base for small dependent draft PRs. No oversized integration PR or main
+merge is authorized by this choice. After parent merges, retarget, remeasure the
+actual diff and rerun CI before review. No M1 WP is DONE and the full LocalStack
+push-to-apply/state/audit gate remains outstanding; stop there before M2.
