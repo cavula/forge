@@ -31,6 +31,9 @@ func TestBrowserSessionRejectsMissingProofAndPool(t *testing.T) {
 			if result, err := store.Create(context.Background(), proof); result != nil || err != ErrBrowserSession {
 				t.Fatal("fabricated proof returned credentials")
 			}
+			if result, err := store.Replace(context.Background(), strings.Repeat("A", 43), proof); result != nil || err != ErrBrowserSession {
+				t.Fatal("fabricated proof replaced a session")
+			}
 		}
 		for _, invalid := range []string{"", strings.Repeat("A", 42) + "B", strings.Repeat("A", 43) + "="} {
 			if result, err := store.Lookup(context.Background(), invalid); result != nil || err != ErrBrowserSession {
@@ -83,6 +86,21 @@ func TestBrowserSessionLifecyclePostgres(t *testing.T) {
  END IF; RETURN NEW; END $$`)
 	exec(owner, "CREATE TRIGGER session_revoke_fixture_insert BEFORE INSERT ON auth_security_events FOR EACH ROW EXECUTE FUNCTION session_revoke_fixture_fault('reject')")
 	exec(owner, "CREATE CONSTRAINT TRIGGER session_revoke_fixture_commit AFTER INSERT ON auth_security_events DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION session_revoke_fixture_fault('commit')")
+	exec(owner, `CREATE FUNCTION session_replace_fixture_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+ IF NEW.action=current_setting('forge.test_replace_action',true) THEN
+  IF current_setting('forge.test_replace_fault',true)=TG_ARGV[0] THEN RAISE EXCEPTION 'fixture fault'; END IF;
+  IF TG_ARGV[0]='insert' AND current_setting('forge.test_replace_fault',true)='cancel' THEN PERFORM pg_sleep(10); END IF;
+ END IF; RETURN NEW; END $$`)
+	exec(owner, "CREATE TRIGGER session_replace_fixture_insert BEFORE INSERT ON auth_security_events FOR EACH ROW EXECUTE FUNCTION session_replace_fixture_fault('insert')")
+	exec(owner, "CREATE CONSTRAINT TRIGGER session_replace_fixture_commit AFTER INSERT ON auth_security_events DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION session_replace_fixture_fault('commit')")
+	exec(owner, `CREATE FUNCTION session_replace_context_guard() RETURNS trigger LANGUAGE plpgsql AS $$ DECLARE expected bytea; BEGIN
+ IF TG_OP='DELETE' THEN expected=OLD.credential_hash; ELSE expected=NEW.credential_hash; END IF;
+ IF current_setting('forge.test_replace_guard',true)='on' AND
+ (current_setting('forge.browser_session_hash',true)<>encode(expected,'hex') OR EXISTS(SELECT FROM unnest(ARRAY[
+ 'forge.org_id','forge.auth_issuer','forge.auth_subject','forge.login_state_hash','forge.login_binding_hash']) s
+ WHERE coalesce(current_setting(s,true),'')<>'')) THEN RAISE EXCEPTION 'context fixture fault'; END IF;
+ IF TG_OP='DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF; END $$`)
+	exec(owner, "CREATE TRIGGER session_replace_context BEFORE INSERT OR DELETE ON browser_sessions FOR EACH ROW EXECUTE FUNCTION session_replace_context_guard()")
 	count := func(table string) int {
 		t.Helper()
 		var result int
@@ -90,6 +108,14 @@ func TestBrowserSessionLifecyclePostgres(t *testing.T) {
 			t.Fatal("fixture count failed")
 		}
 		return result
+	}
+	countAction := func(action string) int {
+		t.Helper()
+		var n int
+		if owner.QueryRow(ctx, "SELECT count(*) FROM auth_security_events WHERE action=$1", action).Scan(&n) != nil {
+			t.Fatal("event fixture count failed")
+		}
+		return n
 	}
 	reset := func() {
 		t.Helper()
@@ -186,8 +212,21 @@ func TestBrowserSessionLifecyclePostgres(t *testing.T) {
 		if store.Revoke(ctx, expiredSession.Credential.Reveal()) != ErrBrowserSession {
 			t.Fatal("expired session revocation succeeded")
 		}
+		if result, err := store.Replace(ctx, expiredSession.Credential.Reveal(), expiring); result != nil || err != ErrBrowserSession {
+			t.Fatal("expired token proof replaced session")
+		}
 		if count("browser_sessions") != sessions || count("auth_security_events") != events {
 			t.Fatal("expired proof mutated storage")
+		}
+		reset()
+		replacement, err := store.Replace(ctx, expiredSession.Credential.Reveal(), identity)
+		if err != nil || replacement == nil || count("browser_sessions") != sessions || count("auth_security_events") != events+2 {
+			t.Fatal("fresh proof could not atomically replace expired row")
+		}
+		digest, _ := loginFlowDigest(expiredSession.Credential.Reveal())
+		var remains bool
+		if owner.QueryRow(ctx, "SELECT EXISTS(SELECT FROM browser_sessions WHERE credential_hash=$1)", digest).Scan(&remains) != nil || remains {
+			t.Fatal("expired old credential preserved")
 		}
 		reset()
 	})
@@ -291,6 +330,9 @@ func TestBrowserSessionLifecyclePostgres(t *testing.T) {
 		if unavailable.Revoke(ctx, strings.Repeat("A", 43)) != ErrBrowserSession {
 			t.Fatal("closed pool accepted revocation")
 		}
+		if result, err := unavailable.Replace(ctx, strings.Repeat("A", 43), identity); result != nil || err != ErrBrowserSession {
+			t.Fatal("closed pool returned replacement credentials")
+		}
 	})
 	t.Run("lookup returns redacted membership proof without renewal authority", func(t *testing.T) {
 		created := create(identity)
@@ -321,6 +363,9 @@ func TestBrowserSessionLifecyclePostgres(t *testing.T) {
 		sessions, events := count("browser_sessions"), count("auth_security_events")
 		if result, err := store.Create(ctx, principal); result != nil || err != ErrBrowserSession {
 			t.Fatal("session lookup proof renewed a session")
+		}
+		if result, err := store.Replace(ctx, created.Credential.Reveal(), principal); result != nil || err != ErrBrowserSession {
+			t.Fatal("lookup principal replaced a session without fresh proof")
 		}
 		orgID, _ := loginFlowUUID()
 		if database.WithOrg(ctx, pool, orgID, func(tx pgx.Tx) error {
@@ -448,5 +493,141 @@ func TestBrowserSessionLifecyclePostgres(t *testing.T) {
 			t.Fatal("canceled lookup damaged session")
 		}
 		reset()
+	})
+	t.Run("strict replacement uses fresh identity, independent values and truthful events", func(t *testing.T) {
+		old, other := create(identity), create(identity)
+		freshRaw := signedIDToken(t, signingKey, map[string]any{"iss": server.URL, "sub": "replacement-subject", "aud": "session-client", "exp": time.Now().Add(24 * time.Hour).Unix(), "nonce": "replacement-nonce"})
+		fresh, err := verifier.Verify(providerCtx, freshRaw, "replacement-nonce")
+		if err != nil {
+			t.Fatal("fresh signed proof failed")
+		}
+		sessions, events := count("browser_sessions"), count("auth_security_events")
+		replaced, created := countAction("browser_session.replaced"), countAction("browser_session.created")
+		for _, invalid := range []string{"", old.Credential.Reveal() + "=", old.CSRF.Reveal(), strings.Repeat("A", 43)} {
+			if result, err := store.Replace(ctx, invalid, fresh); result != nil || err != ErrBrowserSession {
+				t.Fatal("invalid old proof fell back to creation")
+			}
+			reset()
+		}
+		if count("browser_sessions") != sessions || count("auth_security_events") != events {
+			t.Fatal("invalid old proof mutated storage")
+		}
+		newSession, err := store.Replace(ctx, old.Credential.Reveal(), fresh)
+		if err != nil || newSession == nil {
+			t.Fatal("valid replacement failed")
+		}
+		seen := map[string]bool{old.Credential.Reveal(): true, old.CSRF.Reveal(): true}
+		for _, value := range []string{newSession.Credential.Reveal(), newSession.CSRF.Reveal()} {
+			if _, valid := loginFlowDigest(value); !valid || seen[value] {
+				t.Fatal("replacement did not mint independent canonical values")
+			}
+			seen[value] = true
+		}
+		found, err := store.Lookup(ctx, newSession.Credential.Reveal())
+		if err != nil || found == nil || found.Principal().subject != "replacement-subject" || !newSession.ExpiresAt.After(old.ExpiresAt) {
+			t.Fatal("replacement adopted old identity or expiry")
+		}
+		digest, _ := loginFlowDigest(newSession.Credential.Reveal())
+		var row string
+		var capCorrect bool
+		if owner.QueryRow(ctx, "SELECT row_to_json(browser_sessions)::text,expires_at=created_at+interval '8 hours' FROM browser_sessions WHERE credential_hash=$1", digest).Scan(&row, &capCorrect) != nil || !capCorrect {
+			t.Fatal("replacement lifetime did not use database cap")
+		}
+		encoded, _ := json.Marshal(newSession)
+		var output bytes.Buffer
+		_, _ = fmt.Fprintf(&output, "%v %+v %#v", newSession, *newSession, newSession)
+		slog.New(slog.NewJSONHandler(&output, nil)).Info("replacement", "session", newSession)
+		testutil.NoSecrets(t, row+string(encoded)+output.String(), old.Credential.Reveal(), old.CSRF.Reveal(), newSession.Credential.Reveal(), newSession.CSRF.Reveal(), rawToken, freshRaw)
+		if result, err := store.Lookup(ctx, old.Credential.Reveal()); result != nil || err != ErrBrowserSession {
+			t.Fatal("old credential survived replacement")
+		}
+		if result, err := store.Replace(ctx, old.Credential.Reveal(), fresh); result != nil || err != ErrBrowserSession {
+			t.Fatal("replayed old credential created another session")
+		}
+		if result, err := store.Lookup(ctx, other.Credential.Reveal()); result == nil || err != nil {
+			t.Fatal("replacement affected unrelated session")
+		}
+		if count("browser_sessions") != sessions || count("auth_security_events") != events+2 || countAction("browser_session.replaced") != replaced+1 || countAction("browser_session.created") != created+1 {
+			t.Fatal("replacement events did not describe exactly two committed mutations")
+		}
+		reset()
+	})
+	t.Run("replacement switches isolated digest contexts", func(t *testing.T) {
+		old := create(identity)
+		orgID, _ := loginFlowUUID()
+		exec(pool, `SELECT set_config('forge.org_id',$1,false),set_config('forge.auth_issuer','stale',false),
+ set_config('forge.auth_subject','stale',false),set_config('forge.login_state_hash','stale',false),
+ set_config('forge.login_binding_hash','stale',false),set_config('forge.browser_session_hash','stale',false),set_config('forge.test_replace_guard','on',false)`, orgID)
+		result, err := store.Replace(ctx, old.Credential.Reveal(), identity)
+		exec(pool, "RESET ALL")
+		if err != nil || result == nil {
+			t.Fatal("replacement used inherited or overlapping contexts")
+		}
+		reset()
+		if found, err := store.Lookup(ctx, result.Credential.Reveal()); found == nil || err != nil {
+			t.Fatal("new digest context failed persistence")
+		}
+	})
+	t.Run("concurrent replacements have one committed successor", func(t *testing.T) {
+		old := create(identity)
+		concurrent, _ := NewBrowserSessionStore(flowPool(t, runtimeURL, 4))
+		sessions, events := count("browser_sessions"), count("auth_security_events")
+		var group sync.WaitGroup
+		barrier := make(chan struct{})
+		winners := make(chan *BrowserSessionCreated, 12)
+		for range 12 {
+			group.Go(func() {
+				<-barrier
+				result, err := concurrent.Replace(ctx, old.Credential.Reveal(), identity)
+				if err == nil && result != nil {
+					winners <- result
+				} else if err != ErrBrowserSession || result != nil {
+					t.Error("partial concurrent replacement outcome")
+				}
+			})
+		}
+		close(barrier)
+		group.Wait()
+		close(winners)
+		if len(winners) != 1 || count("browser_sessions") != sessions || count("auth_security_events") != events+2 {
+			t.Fatal("concurrent replacement did not commit exactly once")
+		}
+		for winner := range winners {
+			if result, err := store.Lookup(ctx, winner.Credential.Reveal()); result == nil || err != nil {
+				t.Fatal("replacement winner unusable")
+			}
+		}
+		if result, err := store.Lookup(ctx, old.Credential.Reveal()); result != nil || err != ErrBrowserSession {
+			t.Fatal("concurrent replacement preserved old credential")
+		}
+		reset()
+	})
+	t.Run("replacement event, commit and cancellation faults roll back both rows", func(t *testing.T) {
+		for _, action := range []string{"browser_session.replaced", "browser_session.created"} {
+			for _, mode := range []string{"insert", "commit", "cancel"} {
+				old := create(identity)
+				sessions, events := count("browser_sessions"), count("auth_security_events")
+				exec(pool, "SELECT set_config('forge.test_replace_action',$1,false),set_config('forge.test_replace_fault',$2,false)", action, mode)
+				requestCtx, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
+				result, err := store.Replace(requestCtx, old.Credential.Reveal(), identity)
+				cancel()
+				exec(pool, "RESET ALL")
+				if result != nil || err != ErrBrowserSession {
+					t.Fatal("failed replacement exposed partial credentials")
+				}
+				testutil.NoSecrets(t, err.Error(), old.Credential.Reveal(), old.CSRF.Reveal(), identity.issuer, identity.subject)
+				reset()
+				if count("browser_sessions") != sessions || count("auth_security_events") != events {
+					t.Fatal("failed replacement partially committed")
+				}
+				if found, err := store.Lookup(ctx, old.Credential.Reveal()); found == nil || err != nil {
+					t.Fatal("failed replacement consumed old session")
+				}
+				if result, err := store.Replace(ctx, old.Credential.Reveal(), identity); result == nil || err != nil {
+					t.Fatal("replacement retry after rollback failed")
+				}
+				reset()
+			}
+		}
 	})
 }
