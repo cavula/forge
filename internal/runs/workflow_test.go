@@ -233,6 +233,178 @@ func TestRunWorkflowStaleApprovalAndLostAcknowledgment(t *testing.T) {
 	}
 }
 
+func approveFixture(fixture *workflowFixture) {
+	fixture.hook = func(name string, _ Ref) error {
+		if name == "ReadCommand" && fixture.record.Status == forgev1.RunStatus_RUN_STATUS_NEEDS_APPROVAL {
+			fixture.record.ApprovalID = runID
+		}
+		return nil
+	}
+}
+
+func TestRunWorkflowCancellationAtEveryPhase(t *testing.T) {
+	for _, phase := range []string{"Load", "Prepare", "GeneratePlan", "EvaluatePolicy", "Approval", "BeginApply", "ExecuteApply"} {
+		t.Run(phase, func(t *testing.T) {
+			fixture := newRunFixture()
+			if phase != "Approval" {
+				approveFixture(fixture)
+			}
+			env := fixture.environment()
+			if phase != "Approval" {
+				call := env.OnActivity(phase, mock.Anything, mock.Anything).After(time.Hour)
+				if phase == "ExecuteApply" {
+					call.Return(Outcome{}, nil)
+				} else {
+					call.Return(Record{}, nil)
+				}
+			}
+			env.RegisterDelayedCallback(env.CancelWorkflow, time.Second)
+			if result := runWorkflowResult(t, env); result.Status != forgev1.RunStatus_RUN_STATUS_CANCELED {
+				t.Fatalf("cancel result: %v", result)
+			}
+			if fixture.calls[len(fixture.calls)-2] != "StopAndReconcile" || fixture.calls[len(fixture.calls)-1] != "Finish" {
+				t.Fatal("cancellation skipped quiescence evidence")
+			}
+		})
+	}
+}
+
+func TestRunWorkflowCommandsRequireQuiescence(t *testing.T) {
+	for _, quiescent := range []bool{false, true} {
+		fixture := newRunFixture()
+		approveFixture(fixture)
+		fixture.reconciled = Outcome{EvidenceID: runID, Quiescent: quiescent}
+		env := fixture.environment()
+		env.OnActivity("ExecuteApply", mock.Anything, mock.Anything).After(time.Hour).Return(Outcome{}, nil)
+		env.RegisterDelayedCallback(func() {
+			fixture.mu.Lock()
+			fixture.record.CancellationRequested = true
+			fixture.mu.Unlock()
+			env.SignalWorkflow("run-command", map[string]string{"command": "cancel"})
+		}, time.Second)
+		result := runWorkflowResult(t, env)
+		if (quiescent && result.Status != forgev1.RunStatus_RUN_STATUS_CANCELED) ||
+			(!quiescent && result.FailureCode != "APPLY_OUTCOME_UNKNOWN") {
+			t.Fatalf("quiescence did not govern cancellation: %v", result)
+		}
+	}
+	fixture := newRunFixture()
+	fixture.hook = func(name string, _ Ref) error {
+		if name == "ReadCommand" && fixture.record.Status == forgev1.RunStatus_RUN_STATUS_NEEDS_APPROVAL {
+			fixture.record.Status = forgev1.RunStatus_RUN_STATUS_DISCARDED
+		}
+		return nil
+	}
+	if result := runWorkflowResult(t, fixture.environment()); result.Status != forgev1.RunStatus_RUN_STATUS_DISCARDED {
+		t.Fatalf("discard result: %v", result)
+	}
+}
+
+func TestRunWorkflowFailureAndRetryLimits(t *testing.T) {
+	for _, permanent := range []bool{false, true} {
+		fixture, attempts := newRunFixture(), 0
+		fixture.hook = func(name string, _ Ref) error {
+			if name == "Prepare" {
+				attempts++
+				if permanent {
+					return temporal.NewApplicationError("PREPARE_FAILED", "PREPARE_FAILED")
+				}
+				return errors.New("transient transport failure")
+			}
+			return nil
+		}
+		result := runWorkflowResult(t, fixture.environment())
+		if result.FailureCode != "PREPARE_FAILED" || (permanent && attempts != 1) || (!permanent && attempts != 3) {
+			t.Fatalf("retry budget: %v; attempts %d", result, attempts)
+		}
+	}
+	for _, code := range []string{"POLICY_DENIED", "POLICY_FAILED", "AUTHORIZATION_CHANGED"} {
+		fixture := newRunFixture()
+		approveFixture(fixture)
+		approve := fixture.hook
+		fixture.hook = func(name string, ref Ref) error {
+			if (code != "AUTHORIZATION_CHANGED" && name == "EvaluatePolicy") || (code == "AUTHORIZATION_CHANGED" && name == "BeginApply") {
+				return safeRunError(code)
+			}
+			return approve(name, ref)
+		}
+		result := runWorkflowResult(t, fixture.environment())
+		if result.FailureCode != code || strings.Contains(strings.Join(fixture.calls, ","), "ExecuteApply") {
+			t.Fatalf("failure bypassed admission: %v", result)
+		}
+	}
+}
+
+func TestRunWorkflowApprovalTimeoutAndMalformedMetadata(t *testing.T) {
+	fixture := newRunFixture()
+	if result := runWorkflowResult(t, fixture.environment()); result.FailureCode != "APPROVAL_TIMEOUT" {
+		t.Fatalf("approval wait was not finite: %v", result)
+	}
+	for _, binding := range []string{"", strings.Repeat("A", 64), strings.Repeat("g", 64)} {
+		fixture := newRunFixture()
+		fixture.record.BindingSHA256 = binding
+		if result := runWorkflowResult(t, fixture.environment()); result.FailureCode != "POLICY_FAILED" {
+			t.Fatalf("malformed trusted metadata reached approval: %v", result)
+		}
+	}
+}
+
+func deadlineWorkflow(ctx workflow.Context, input RunInput) error {
+	run := runExecution{input: input, record: Record{Status: forgev1.RunStatus_RUN_STATUS_PREPARING},
+		signals: workflow.GetSignalChannel(ctx, "run-command"), deadline: workflow.NewTimer(ctx, time.Second)}
+	return run.callRecord(ctx, "Prepare", run.ref("Prepare"))
+}
+
+func TestWorkflowSafetyDeadline(t *testing.T) {
+	fixture := newRunFixture()
+	env := fixture.environment()
+	env.OnActivity("Prepare", mock.Anything, mock.Anything).After(time.Minute).Return(Record{}, nil)
+	env.ExecuteWorkflow(deadlineWorkflow, RunInput{OrgID: orgID, RunID: runID})
+	if err := env.GetWorkflowError(); err == nil || runFailureCode(err, "INTERNAL") != "PHASE_TIMEOUT" {
+		t.Fatalf("workflow timer failed: %v", err)
+	}
+}
+
+func TestRunWorkflowPhaseTimeoutAndCleanupFailure(t *testing.T) {
+	fixture := newRunFixture()
+	env := fixture.environment()
+	env.OnActivity("EvaluatePolicy", mock.Anything, mock.Anything).After(time.Minute).Return(fixture.record, nil)
+	if result := runWorkflowResult(t, env); result.FailureCode != "PHASE_TIMEOUT" {
+		t.Fatalf("phase timeout failed: %v", result)
+	}
+	fixture = newRunFixture()
+	approveFixture(fixture)
+	approve := fixture.hook
+	fixture.hook = func(name string, ref Ref) error {
+		if name == "ExecuteApply" || name == "StopAndReconcile" {
+			return safeRunError("INTERNAL")
+		}
+		return approve(name, ref)
+	}
+	if result := runWorkflowResult(t, fixture.environment()); result.FailureCode != "APPLY_OUTCOME_UNKNOWN" {
+		t.Fatalf("failed reconciliation released uncertainty: %v", result)
+	}
+}
+
+func TestRunWorkflowCleanupDeadlines(t *testing.T) {
+	fixture := newRunFixture()
+	approveFixture(fixture)
+	env := fixture.environment()
+	env.OnActivity("ExecuteApply", mock.Anything, mock.Anything).Return(Outcome{}, safeRunError("APPLY_FAILED"))
+	env.OnActivity("StopAndReconcile", mock.Anything, mock.Anything).After(time.Hour).Return(Outcome{}, nil)
+	if result := runWorkflowResult(t, env); result.FailureCode != "APPLY_OUTCOME_UNKNOWN" {
+		t.Fatalf("cleanup timeout bypassed quarantine: %v", result)
+	}
+	fixture = newRunFixture()
+	approveFixture(fixture)
+	env = fixture.environment()
+	env.OnActivity("Finish", mock.Anything, mock.Anything).After(time.Hour).Return(RunResult{}, nil)
+	env.ExecuteWorkflow(RunWorkflow, RunInput{OrgID: orgID, RunID: runID})
+	if err := env.GetWorkflowError(); err == nil || runFailureCode(err, "APPLY_FAILED") != "INTERNAL" {
+		t.Fatalf("uncertain finalization did not fail safely: %v", err)
+	}
+}
+
 func TestIndependentApprovalDeadlineDuringJournalRead(t *testing.T) {
 	fixture := newRunFixture()
 	env := fixture.environment()
@@ -292,11 +464,49 @@ func TestIndependentRejectSuccessAfterAdmissionDenial(t *testing.T) {
 	}
 }
 
-func approveFixture(fixture *workflowFixture) {
-	fixture.hook = func(name string, _ Ref) error {
-		if name == "ReadCommand" && fixture.record.Status == forgev1.RunStatus_RUN_STATUS_NEEDS_APPROVAL {
-			fixture.record.ApprovalID = runID
+func TestIndependentSafetyRepeatedForgedSignalsDoNotRelaunch(t *testing.T) {
+	fixture := newRunFixture()
+	approveFixture(fixture)
+	env := fixture.environment()
+	applies := 0
+	env.OnActivity("ExecuteApply", mock.Anything, mock.Anything).After(20 * time.Second).Return(func(_ context.Context, _ JobInput) (Outcome, error) { applies++; return fixture.applied, nil }).Once()
+	for second := 1; second <= 10; second++ {
+		env.RegisterDelayedCallback(func() {
+			env.SignalWorkflow("run-command", map[string]string{"approval": "forged", "org": "foreign", "status": "FINISHED"})
+		}, time.Duration(second)*time.Second)
+	}
+	result := runWorkflowResult(t, env)
+	if result.Status != forgev1.RunStatus_RUN_STATUS_FINISHED || applies != 1 || fixture.beginBinding != strings.Repeat("a", 64) {
+		t.Fatalf("signal altered apply/binding: %v count=%d", result, applies)
+	}
+}
+
+func TestIndependentSafetyForgedApprovalNeverEntersApply(t *testing.T) {
+	fixture := newRunFixture()
+	env := fixture.environment()
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow("run-command", map[string]string{"ApprovalID": runID, "BindingSHA256": strings.Repeat("a", 64)})
+	}, time.Second)
+	result := runWorkflowResult(t, env)
+	if result.FailureCode != "APPROVAL_TIMEOUT" {
+		t.Fatalf("forged approval changed wait outcome: %v", result)
+	}
+	for _, name := range fixture.calls {
+		if name == "BeginApply" || name == "ExecuteApply" {
+			t.Fatal("signal granted admission")
 		}
-		return nil
+	}
+}
+
+func TestIndependentSafetyRejectInvalidFinishMetadata(t *testing.T) {
+	for _, result := range []RunResult{{RunID: orgID, Status: forgev1.RunStatus_RUN_STATUS_FINISHED}, {RunID: runID, Status: RunStatus(2147483647)}, {RunID: runID, Status: forgev1.RunStatus_RUN_STATUS_FAILED, FailureCode: "raw credential diagnostic"}} {
+		fixture := newRunFixture()
+		approveFixture(fixture)
+		env := fixture.environment()
+		env.OnActivity("Finish", mock.Anything, mock.Anything).Return(result, nil)
+		env.ExecuteWorkflow(RunWorkflow, RunInput{OrgID: orgID, RunID: runID})
+		if err := env.GetWorkflowError(); err == nil || runFailureCode(err, "APPLY_FAILED") != "INTERNAL" || strings.Contains(err.Error(), "raw credential") {
+			t.Fatalf("invalid Finish metadata escaped: %v", err)
+		}
 	}
 }
