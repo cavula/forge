@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package forge.v1;
+
+import "forge/v1/identity_get_current_user.proto";
+
+option go_package = "github.com/cavula/forge/gen/go/forge/v1;forgev1";
+
+// IdentityService exposes the authenticated organization membership.
+service IdentityService {
+  rpc GetCurrentUser(GetCurrentUserRequest) returns (GetCurrentUserResponse);
+}
