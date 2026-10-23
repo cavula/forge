@@ -23,6 +23,17 @@ M2 and later milestones remain outside the current gate.
 
 ## M1 choices
 
+- Security/monitoring framework: organize the existing requirements with NIST
+  CSF 2.0 and the OTel signal model in CONTROLS.md. This is a reversible evidence
+  baseline, not certification. Deployment profiles, telemetry backend/retention,
+  alert destinations and numeric SLOs remain operator choices at M2/M6 gates.
+- Operator bootstrap is insert-only per supplied new organization UUID; it does
+  not require a globally empty database or disable RLS. Existing volumes need a
+  reviewed backup/restore into a freshly provisioned cluster; application startup
+  never performs it. Automatic review rejected changing existing database roles;
+  subsequent testing found PostgreSQL's bootstrap superuser cannot be demoted.
+  Validate the corrected fresh-cluster provisioning with a disposable fixture.
+
 - API-token format: `forge_v1.<selector>.<secret>` with 128-bit random selector,
   256-bit secret and SHA-256 over the entire canonical token (ADR0010). No
   token persistence or public authentication is provided by this primitive.
