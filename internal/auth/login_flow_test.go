@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -83,6 +85,9 @@ func TestLoginFlowRedactionAndInputs(t *testing.T) {
 	if result, err := store.Create(context.Background()); result != nil || err != ErrLoginFlow {
 		t.Fatal("nil store accepted")
 	}
+	if result, err := store.Consume(context.Background(), "", ""); result != nil || err != ErrLoginFlow {
+		t.Fatal("nil store accepted")
+	}
 }
 
 func TestLoginFlowPostgres(t *testing.T) {
@@ -151,7 +156,16 @@ func TestLoginFlowPostgres(t *testing.T) {
 		reset()
 		return result
 	}
-	t.Run("creation stores encrypted credentials and one event", func(t *testing.T) {
+	consume := func(s *LoginFlowStore, start *LoginFlowStart, success bool) *LoginFlowConsumed {
+		t.Helper()
+		result, err := s.Consume(ctx, start.State.Reveal(), start.Binding.Reveal())
+		if success && (err != nil || result == nil) || !success && (err != ErrLoginFlow || result != nil) {
+			t.Fatal("incorrect consumption outcome")
+		}
+		reset()
+		return result
+	}
+	t.Run("roundtrip, proofs, replay and stored confidentiality", func(t *testing.T) {
 		flows, events := count("login_flows"), count("auth_security_events")
 		start := create()
 		state, _ := loginFlowDigest(start.State.Reveal())
@@ -160,44 +174,115 @@ func TestLoginFlowPostgres(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var row, id string
+		var row string
 		var expiry bool
-		var envelope secrets.Envelope
-		err = tx.QueryRow(ctx, `SELECT row_to_json(login_flows)::text,
- expires_at=created_at+interval '10 minutes',id::text,ciphertext,nonce,wrapped_dek,key_id
- FROM login_flows WHERE state_hash=$1 AND binding_hash=$2`, state, binding).
-			Scan(&row, &expiry, &id, &envelope.Ciphertext, &envelope.Nonce, &envelope.WrappedDEK, &envelope.KeyID)
+		err = tx.QueryRow(ctx, `SELECT row_to_json(login_flows)::text, expires_at=created_at+interval '10 minutes'
+ FROM login_flows WHERE state_hash=$1 AND binding_hash=$2`, state, binding).Scan(&row, &expiry)
 		_ = tx.Commit(ctx)
 		if err != nil || !expiry {
 			t.Fatal("database expiry or stored row invalid")
 		}
-		plaintext, err := key.Open(secrets.AuthFlowContext{FlowID: id, Version: 1}, envelope)
-		if err != nil {
-			t.Fatal("stored payload did not authenticate")
+		other := create()
+		for _, proof := range [][2]string{{start.State.Reveal(), other.Binding.Reveal()}, {other.State.Reveal(), start.Binding.Reveal()}, {start.State.Reveal() + "=", start.Binding.Reveal()}} {
+			if result, err := store.Consume(ctx, proof[0], proof[1]); result != nil || err != ErrLoginFlow {
+				t.Fatal("wrong proof consumed flow")
+			}
+			reset()
 		}
-		var payload loginFlowPayload
-		if json.Unmarshal(plaintext, &payload) != nil {
-			t.Fatal("stored payload invalid")
-		}
-		challenge := sha256.Sum256([]byte(payload.Verifier))
-		if payload.Nonce != start.Nonce.Reveal() || base64.RawURLEncoding.EncodeToString(challenge[:]) != start.PKCEChallenge.Reveal() {
-			t.Fatal("outbound nonce or PKCE did not match encrypted payload")
+		result := consume(store, start, true)
+		challenge := sha256.Sum256([]byte(result.PKCEVerifier.Reveal()))
+		if result.Nonce.Reveal() != start.Nonce.Reveal() || base64.RawURLEncoding.EncodeToString(challenge[:]) != start.PKCEChallenge.Reveal() {
+			t.Fatal("nonce or PKCE roundtrip failed")
 		}
 		seen := map[string]bool{}
-		for _, value := range []string{start.State.Reveal(), start.Binding.Reveal(), start.Nonce.Reveal(), payload.Verifier} {
+		for _, value := range []string{start.State.Reveal(), start.Binding.Reveal(), start.Nonce.Reveal(), result.PKCEVerifier.Reveal()} {
 			if _, valid := loginFlowDigest(value); !valid || seen[value] {
 				t.Fatal("credentials not canonical and independent")
 			}
 			seen[value] = true
 			testutil.NoSecrets(t, row, value)
 		}
-		if count("login_flows") != flows+1 || count("auth_security_events") != events+1 {
-			t.Fatal("creation event not atomic with flow insertion")
+		consume(store, start, false)
+		consume(store, other, true)
+		if count("login_flows") != flows || count("auth_security_events") != events+4 {
+			t.Fatal("lifecycle events not atomic with mutation")
 		}
-		exec(owner, "DELETE FROM login_flows WHERE id=$1", id)
-		reset()
 	})
-	t.Run("creation event failure rolls back; cancellation resets pool", func(t *testing.T) {
+	t.Run("concurrent callbacks have one winner", func(t *testing.T) {
+		concurrent, _ := NewLoginFlowStore(flowPool(t, url, 4), key)
+		start := create()
+		var wins atomic.Int32
+		var wg sync.WaitGroup
+		barrier := make(chan struct{})
+		for range 12 {
+			wg.Go(func() {
+				<-barrier
+				result, err := concurrent.Consume(ctx, start.State.Reveal(), start.Binding.Reveal())
+				if err == nil && result != nil {
+					wins.Add(1)
+				} else if err != ErrLoginFlow || result != nil {
+					t.Error("partial concurrent result")
+				}
+			})
+		}
+		close(barrier)
+		wg.Wait()
+		if wins.Load() != 1 {
+			t.Fatal("concurrent consumption did not have exactly one winner")
+		}
+		consume(store, start, false)
+	})
+	t.Run("expiry and corrupt payloads fail closed after consumption", func(t *testing.T) {
+		wrongKey, _ := NewLoginFlowStore(pool, flowKey(t, "login-flow-fixture", 38))
+		unknownKey, _ := NewLoginFlowStore(pool, flowKey(t, "different-key", 37))
+		for _, mode := range []string{"expired", "tamper", "wrong-key", "unknown-key", "unknown", "duplicate", "missing", "noncanonical", "trailing", "null"} {
+			start := create()
+			state, _ := loginFlowDigest(start.State.Reveal())
+			var id string
+			if owner.QueryRow(ctx, "SELECT id::text FROM login_flows WHERE state_hash=$1", state).Scan(&id) != nil {
+				t.Fatal("fixture flow missing")
+			}
+			switch mode {
+			case "expired":
+				exec(owner, "UPDATE login_flows SET created_at=now()-interval '11 minutes',expires_at=now()-interval '1 minute' WHERE id=$1", id)
+			case "tamper":
+				exec(owner, "UPDATE login_flows SET ciphertext=decode('00','hex') WHERE id=$1", id)
+			case "wrong-key":
+				consume(wrongKey, start, false)
+			case "unknown-key":
+				consume(unknownKey, start, false)
+			default:
+				value := strings.Repeat("A", 43)
+				payload := `{"nonce":"` + value + `","verifier":"` + value + `"}`
+				switch mode {
+				case "unknown":
+					payload = strings.TrimSuffix(payload, "}") + `,"extra":"secret"}`
+				case "duplicate":
+					payload = strings.TrimSuffix(payload, "}") + `,"nonce":"` + value + `"}`
+				case "missing":
+					payload = `{"nonce":"` + value + `"}`
+				case "noncanonical":
+					payload = strings.ReplaceAll(payload, value, strings.Repeat("A", 42)+"B")
+				case "trailing":
+					payload += "{}"
+				case "null":
+					payload = "null"
+				}
+				envelope, err := key.Seal(secrets.AuthFlowContext{FlowID: id, Version: 1}, []byte(payload))
+				if err != nil {
+					t.Fatal(err)
+				}
+				exec(owner, "UPDATE login_flows SET ciphertext=$2,nonce=$3,wrapped_dek=$4 WHERE id=$1", id, envelope.Ciphertext, envelope.Nonce, envelope.WrappedDEK)
+			}
+			consume(store, start, false)
+			var remains bool
+			if owner.QueryRow(ctx, "SELECT EXISTS(SELECT FROM login_flows WHERE id=$1)", id).Scan(&remains) != nil || remains != (mode == "expired") {
+				t.Fatal("invalid envelope retained credentials or expired flow consumed")
+			}
+			exec(owner, "DELETE FROM login_flows WHERE id=$1", id)
+		}
+	})
+	t.Run("event failures rollback both mutations; cancellation resets pool", func(t *testing.T) {
 		flows, events := count("login_flows"), count("auth_security_events")
 		exec(pool, "SELECT set_config('forge.test_event_fault','login_flow.created',false)")
 		if result, err := store.Create(ctx); result != nil || err != ErrLoginFlow {
@@ -208,6 +293,12 @@ func TestLoginFlowPostgres(t *testing.T) {
 		if count("login_flows") != flows || count("auth_security_events") != events {
 			t.Fatal("creation failure partially committed")
 		}
+		start := create()
+		exec(pool, "SELECT set_config('forge.test_event_fault','login_flow.consumed',false)")
+		consume(store, start, false)
+		exec(pool, "RESET forge.test_event_fault")
+		consume(store, start, true)
+		flows, events = count("login_flows"), count("auth_security_events")
 		exec(pool, "SELECT set_config('forge.test_event_fault','cancel',false)")
 		canceled, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
 		defer cancel()
@@ -219,6 +310,21 @@ func TestLoginFlowPostgres(t *testing.T) {
 		if count("login_flows") != flows || count("auth_security_events") != events {
 			t.Fatal("canceled creation partially committed")
 		}
+		start = create()
+		flows, events = count("login_flows"), count("auth_security_events")
+		exec(pool, "SELECT set_config('forge.test_event_fault','cancel',false)")
+		canceledConsume, cancelConsume := context.WithTimeout(ctx, 150*time.Millisecond)
+		defer cancelConsume()
+		result, err := store.Consume(canceledConsume, start.State.Reveal(), start.Binding.Reveal())
+		if result != nil || err != ErrLoginFlow {
+			t.Fatal("canceled consumption returned credentials")
+		}
+		exec(pool, "RESET forge.test_event_fault")
+		reset()
+		if count("login_flows") != flows || count("auth_security_events") != events {
+			t.Fatal("canceled consumption partially committed")
+		}
+		consume(store, start, true)
 	})
 	t.Run("flow authority clears inherited tenant and principal contexts", func(t *testing.T) {
 		id, _ := loginFlowUUID()
@@ -255,7 +361,7 @@ func TestLoginFlowPostgres(t *testing.T) {
 		}
 		exec(pool, "RESET ALL")
 		reset()
-		exec(owner, "DELETE FROM login_flows WHERE state_hash=$1", state)
+		consume(store, start, true)
 		if database.WithOrg(ctx, pool, id, func(tx pgx.Tx) error {
 			for _, table := range []string{"stacks", "users", "orgs"} {
 				column := "org_id"
@@ -278,6 +384,9 @@ func TestLoginFlowPostgres(t *testing.T) {
 		if result, err := unavailable.Create(ctx); result != nil || err != ErrLoginFlow {
 			t.Fatal("closed pool returned outbound credentials")
 		}
-
+		value := strings.Repeat("A", 43)
+		if result, err := unavailable.Consume(ctx, value, value); result != nil || err != ErrLoginFlow {
+			t.Fatal("closed pool returned consumed credentials")
+		}
 	})
 }
