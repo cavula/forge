@@ -22,6 +22,7 @@ smoke:
 tools:
 	GOBIN=$(TOOLS) go install github.com/bufbuild/buf/cmd/buf@v1.74.0
 	GOBIN=$(TOOLS) go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+	sh scripts/install-opa.sh "$(TOOLS)/opa"
 
 web-install:
 	$(PNPM) --dir web install --frozen-lockfile
@@ -34,11 +35,13 @@ lint:
 	go vet ./...
 	buf lint
 	buf format --diff --exit-code
+	opa check --strict policies
 	$(PNPM) --dir web lint
 
 test:
 	go test -race -coverprofile=coverage.out ./...
 	$(PNPM) --dir web test
+	opa test --coverage --threshold=70 policies > policy-coverage.json
 
 integration:
 	TEST_DATABASE_URL='$(TEST_DATABASE_URL)' go test -race -count=1 -v ./internal/database
