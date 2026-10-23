@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package forge.v1;
+
+option go_package = "github.com/cavula/forge/gen/go/forge/v1;forgev1";
+
+// StackEnvironmentVariable is non-secret configuration visible to organization readers.
+message StackEnvironmentVariable {
+  string name = 1;
+  string value = 2;
+}
