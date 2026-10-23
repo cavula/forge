@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package forge.v1;
+
+import "forge/v1/entities.proto";
+
+option go_package = "github.com/cavula/forge/gen/go/forge/v1;forgev1";
+
+// GetStackRequest identifies a stack within the authenticated organization.
+message GetStackRequest {
+  string id = 1;
+}
+
+// GetStackResponse contains the authorized stack and its server-assigned metadata.
+message GetStackResponse {
+  Stack stack = 1;
+}
