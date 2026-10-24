@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package forge.v1;
 
+import "forge/v1/stack_environment.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/cavula/forge/gen/go/forge/v1;forgev1";
@@ -52,6 +53,8 @@ message Stack {
   Engine engine = 7;
   string engine_version = 8;
   google.protobuf.Timestamp created_at = 9;
+  repeated StackEnvironmentVariable environment_variables = 10;
+  uint64 configuration_revision = 11;
 }
 
 enum Engine {

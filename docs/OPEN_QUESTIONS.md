@@ -69,3 +69,35 @@ custom tenant setting. M0 makes neither an encryption-service nor an auth claim.
 - Session expiry provenance belongs to the future opaque verified-identity helper;
   the schema alone cannot verify an issuer, subject or ID-token expiry. Routes
   remain unbound until lifecycle, CSRF, limiting and independent security gates pass.
+
+## M1 integration choices — 2026-10-23
+
+- Session replacement is a strict primitive: a fresh OIDC expiry proof and exactly
+  one previous digest row are required; expired rows can be replaced. Unknown or
+  replayed credentials fail atomically. A future handler clears stale cookies and
+  restarts login; the primitive never silently falls back to initial creation.
+- Environment values reject surrounding Unicode whitespace under ADR0018 without
+  trimming; empty values and interior spaces remain valid. Normalization copies
+  known fields, preserving protobuf compatibility by ignoring unknown fields.
+- Repository hosts use ADR0018's explicit nontransitional IDNA profile with exact
+  ASCII equality, DNS-length checks and reserved-hyphen rules. Digit/dot-only hosts
+  must be canonical IP addresses. No DNS lookup or silent host rewriting occurs.
+- ADR0019 chooses admin-only interactive approval, permits admin self-approval,
+  requires human approval for every M1 plan, and permits one active run per stack.
+  Fixed timeout defaults and policy-bundle change invalidation are reversible;
+  real runner provenance, state fencing and operator reconciliation remain gates.
+
+## State and legacy migration choices — 2026-10-23
+
+- ADR0020 chooses job-bound Basic capabilities for native HTTP state, with no
+  inherited state permission from metadata/resource roles. Native UNLOCK records
+  intent; only trusted process quiescence releases a durable reservation.
+- State uses local mounted envelope keys for M1, with reviewed rotation before
+  exposure. Opaque legacy versions remain retained but unavailable until verified
+  head backfill; missing metadata is never reported as empty state.
+- Stack legacy configuration and unknown creation time remain NULL; revision1 is
+  a new baseline. Full validated replacement repairs configuration only. Downgrade
+  must fail rather than lose configured/archived/post-upgrade data.
+- A workflow signal is only a wakeup; the approval deadline also bounds journal
+  reads/admission. Quiescence/success requires a canonical evidence reference.
+  No successful reconciliation may turn rejected admission into successful apply.
