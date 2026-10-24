@@ -502,18 +502,20 @@ func (x *Team) GetCreatedAt() *timestamppb.Timestamp {
 
 // Stack describes a Git-backed IaC execution target.
 type Stack struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	OrgId            string                 `protobuf:"bytes,2,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	Name             string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	RepositoryUrl    string                 `protobuf:"bytes,4,opt,name=repository_url,json=repositoryUrl,proto3" json:"repository_url,omitempty"`
-	Branch           string                 `protobuf:"bytes,5,opt,name=branch,proto3" json:"branch,omitempty"`
-	WorkingDirectory string                 `protobuf:"bytes,6,opt,name=working_directory,json=workingDirectory,proto3" json:"working_directory,omitempty"`
-	Engine           Engine                 `protobuf:"varint,7,opt,name=engine,proto3,enum=forge.v1.Engine" json:"engine,omitempty"`
-	EngineVersion    string                 `protobuf:"bytes,8,opt,name=engine_version,json=engineVersion,proto3" json:"engine_version,omitempty"`
-	CreatedAt        *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state                 protoimpl.MessageState      `protogen:"open.v1"`
+	Id                    string                      `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	OrgId                 string                      `protobuf:"bytes,2,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Name                  string                      `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	RepositoryUrl         string                      `protobuf:"bytes,4,opt,name=repository_url,json=repositoryUrl,proto3" json:"repository_url,omitempty"`
+	Branch                string                      `protobuf:"bytes,5,opt,name=branch,proto3" json:"branch,omitempty"`
+	WorkingDirectory      string                      `protobuf:"bytes,6,opt,name=working_directory,json=workingDirectory,proto3" json:"working_directory,omitempty"`
+	Engine                Engine                      `protobuf:"varint,7,opt,name=engine,proto3,enum=forge.v1.Engine" json:"engine,omitempty"`
+	EngineVersion         string                      `protobuf:"bytes,8,opt,name=engine_version,json=engineVersion,proto3" json:"engine_version,omitempty"`
+	CreatedAt             *timestamppb.Timestamp      `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	EnvironmentVariables  []*StackEnvironmentVariable `protobuf:"bytes,10,rep,name=environment_variables,json=environmentVariables,proto3" json:"environment_variables,omitempty"`
+	ConfigurationRevision uint64                      `protobuf:"varint,11,opt,name=configuration_revision,json=configurationRevision,proto3" json:"configuration_revision,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *Stack) Reset() {
@@ -607,6 +609,20 @@ func (x *Stack) GetCreatedAt() *timestamppb.Timestamp {
 		return x.CreatedAt
 	}
 	return nil
+}
+
+func (x *Stack) GetEnvironmentVariables() []*StackEnvironmentVariable {
+	if x != nil {
+		return x.EnvironmentVariables
+	}
+	return nil
+}
+
+func (x *Stack) GetConfigurationRevision() uint64 {
+	if x != nil {
+		return x.ConfigurationRevision
+	}
+	return 0
 }
 
 // Run is one execution. A run's stack must belong to the same organization.
@@ -1104,7 +1120,7 @@ var File_forge_v1_entities_proto protoreflect.FileDescriptor
 
 const file_forge_v1_entities_proto_rawDesc = "" +
 	"\n" +
-	"\x17forge/v1/entities.proto\x12\bforge.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"d\n" +
+	"\x17forge/v1/entities.proto\x12\bforge.v1\x1a forge/v1/stack_environment.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"d\n" +
 	"\x03Org\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x129\n" +
@@ -1125,7 +1141,7 @@ const file_forge_v1_entities_proto_rawDesc = "" +
 	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x129\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xba\x02\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xca\x03\n" +
 	"\x05Stack\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x12\n" +
@@ -1136,7 +1152,10 @@ const file_forge_v1_entities_proto_rawDesc = "" +
 	"\x06engine\x18\a \x01(\x0e2\x10.forge.v1.EngineR\x06engine\x12%\n" +
 	"\x0eengine_version\x18\b \x01(\tR\rengineVersion\x129\n" +
 	"\n" +
-	"created_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xed\x02\n" +
+	"created_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12W\n" +
+	"\x15environment_variables\x18\n" +
+	" \x03(\v2\".forge.v1.StackEnvironmentVariableR\x14environmentVariables\x125\n" +
+	"\x16configuration_revision\x18\v \x01(\x04R\x15configurationRevision\"\xed\x02\n" +
 	"\x03Run\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06org_id\x18\x02 \x01(\tR\x05orgId\x12\x19\n" +
@@ -1245,20 +1264,21 @@ func file_forge_v1_entities_proto_rawDescGZIP() []byte {
 var file_forge_v1_entities_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
 var file_forge_v1_entities_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_forge_v1_entities_proto_goTypes = []any{
-	(Role)(0),                     // 0: forge.v1.Role
-	(Engine)(0),                   // 1: forge.v1.Engine
-	(RunKind)(0),                  // 2: forge.v1.RunKind
-	(RunStatus)(0),                // 3: forge.v1.RunStatus
-	(*Org)(nil),                   // 4: forge.v1.Org
-	(*User)(nil),                  // 5: forge.v1.User
-	(*Team)(nil),                  // 6: forge.v1.Team
-	(*Stack)(nil),                 // 7: forge.v1.Stack
-	(*Run)(nil),                   // 8: forge.v1.Run
-	(*StateVersion)(nil),          // 9: forge.v1.StateVersion
-	(*Policy)(nil),                // 10: forge.v1.Policy
-	(*Secret)(nil),                // 11: forge.v1.Secret
-	(*AuditEvent)(nil),            // 12: forge.v1.AuditEvent
-	(*timestamppb.Timestamp)(nil), // 13: google.protobuf.Timestamp
+	(Role)(0),                        // 0: forge.v1.Role
+	(Engine)(0),                      // 1: forge.v1.Engine
+	(RunKind)(0),                     // 2: forge.v1.RunKind
+	(RunStatus)(0),                   // 3: forge.v1.RunStatus
+	(*Org)(nil),                      // 4: forge.v1.Org
+	(*User)(nil),                     // 5: forge.v1.User
+	(*Team)(nil),                     // 6: forge.v1.Team
+	(*Stack)(nil),                    // 7: forge.v1.Stack
+	(*Run)(nil),                      // 8: forge.v1.Run
+	(*StateVersion)(nil),             // 9: forge.v1.StateVersion
+	(*Policy)(nil),                   // 10: forge.v1.Policy
+	(*Secret)(nil),                   // 11: forge.v1.Secret
+	(*AuditEvent)(nil),               // 12: forge.v1.AuditEvent
+	(*timestamppb.Timestamp)(nil),    // 13: google.protobuf.Timestamp
+	(*StackEnvironmentVariable)(nil), // 14: forge.v1.StackEnvironmentVariable
 }
 var file_forge_v1_entities_proto_depIdxs = []int32{
 	13, // 0: forge.v1.Org.created_at:type_name -> google.protobuf.Timestamp
@@ -1267,21 +1287,22 @@ var file_forge_v1_entities_proto_depIdxs = []int32{
 	13, // 3: forge.v1.Team.created_at:type_name -> google.protobuf.Timestamp
 	1,  // 4: forge.v1.Stack.engine:type_name -> forge.v1.Engine
 	13, // 5: forge.v1.Stack.created_at:type_name -> google.protobuf.Timestamp
-	3,  // 6: forge.v1.Run.status:type_name -> forge.v1.RunStatus
-	2,  // 7: forge.v1.Run.kind:type_name -> forge.v1.RunKind
-	13, // 8: forge.v1.Run.created_at:type_name -> google.protobuf.Timestamp
-	13, // 9: forge.v1.Run.started_at:type_name -> google.protobuf.Timestamp
-	13, // 10: forge.v1.Run.finished_at:type_name -> google.protobuf.Timestamp
-	13, // 11: forge.v1.StateVersion.created_at:type_name -> google.protobuf.Timestamp
-	13, // 12: forge.v1.Policy.created_at:type_name -> google.protobuf.Timestamp
-	13, // 13: forge.v1.Secret.created_at:type_name -> google.protobuf.Timestamp
-	13, // 14: forge.v1.Secret.updated_at:type_name -> google.protobuf.Timestamp
-	13, // 15: forge.v1.AuditEvent.occurred_at:type_name -> google.protobuf.Timestamp
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	14, // 6: forge.v1.Stack.environment_variables:type_name -> forge.v1.StackEnvironmentVariable
+	3,  // 7: forge.v1.Run.status:type_name -> forge.v1.RunStatus
+	2,  // 8: forge.v1.Run.kind:type_name -> forge.v1.RunKind
+	13, // 9: forge.v1.Run.created_at:type_name -> google.protobuf.Timestamp
+	13, // 10: forge.v1.Run.started_at:type_name -> google.protobuf.Timestamp
+	13, // 11: forge.v1.Run.finished_at:type_name -> google.protobuf.Timestamp
+	13, // 12: forge.v1.StateVersion.created_at:type_name -> google.protobuf.Timestamp
+	13, // 13: forge.v1.Policy.created_at:type_name -> google.protobuf.Timestamp
+	13, // 14: forge.v1.Secret.created_at:type_name -> google.protobuf.Timestamp
+	13, // 15: forge.v1.Secret.updated_at:type_name -> google.protobuf.Timestamp
+	13, // 16: forge.v1.AuditEvent.occurred_at:type_name -> google.protobuf.Timestamp
+	17, // [17:17] is the sub-list for method output_type
+	17, // [17:17] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_forge_v1_entities_proto_init() }
@@ -1289,6 +1310,7 @@ func file_forge_v1_entities_proto_init() {
 	if File_forge_v1_entities_proto != nil {
 		return
 	}
+	file_forge_v1_stack_environment_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

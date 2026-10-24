@@ -278,3 +278,39 @@ acceptance is claimed. Root coordinates integration; maintainer controls merges.
 An isolated exact-main regression run uses a separate disposable PostgreSQL
 database; existing development volumes/roles are not modified. M1 still needs the
 real LocalStack push/plan/policy/human-approval/apply/state/audit acceptance gate.
+
+## M1 parallel validation cycle — 2026-10-23
+
+Root owns integration/publication; maintainer retains merges. This record
+supersedes older queue snapshots without marking any M1 work package complete.
+
+- Hosted foundations and roadmap CI pass for #32/#35/#36/#38/#39/#40.
+  #20, #28, #31 and design #38 are ready; dependent drafts retain their gates.
+- Strict session replacement #41 passed independent PostgreSQL race tests twice
+  (auth92.9%, session90.4%, Replace88.9%). It is263 changed lines on #39; browser
+  routing, Origin/CSRF, shared limiting and expiry-only pruning remain required.
+- GetStack service #42 is340 lines on #40. Pinned generation, Buf/wire checks,
+  Go tests/vet and fifteen web tests pass; no application handler is mounted.
+- Run model/SDK #43 is454 lines on #38; independent structural QA and isolated
+  race97.6%/vet/govulncheck pass. Stack path/metadata #44 is453 lines on #38;
+  exact isolated race100%/vet/govulncheck pass. Environment validation #45 is266
+  lines on #33 with focused race100%/vet evidence. Hosted CI gates new slices.
+- ORCH produced unbound Temporal workflow/tests. Independent review reproduced
+  a journal-read approval-timeout race and three metadata/evidence failures. Root
+  corrected them before publication; race tests twice pass at91.1%, and independent
+  deadline/evidence/admission probes pass. Real Temporal history, trusted activity
+  adapters, fencing, runner quiescence and LocalStack acceptance remain unproven.
+- CORE is implementing approved nullable legacy stack migration00006; existing
+  configuration and timestamps are never invented. ARCHITECT accepted ADR0020
+  for job-bound HTTP state capabilities, durable slots/fences, immutable encrypted
+  versions and recovery. State schema reserves00007; no state route is enabled.
+- Root's current-membership operation helper passes real PostgreSQL race tests
+  twice, including demotion/deletion serialization; independent QA is in progress.
+  Browser-boundary helpers passed their producer suite; independent review remains.
+
+Exact merged-main5c6d872 regression passed isolated migrations up/down/up, full Go
+race/vet/build/coverage and Buf checks; its temporary database was removed.
+The subsequent stopped disposable PostgreSQL fixture is being replaced with a
+fresh isolated project for further tests. No existing development role/volume was
+modified. Full push/plan/policy/human-approval/apply/versioned-state/audit CI remains
+the M1 completion gate; stop and report before M2.
