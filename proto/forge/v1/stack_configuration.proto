@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package forge.v1;
+
+import "forge/v1/entities.proto";
+import "forge/v1/stack_environment.proto";
+
+option go_package = "github.com/cavula/forge/gen/go/forge/v1;forgev1";
+
+// StackConfiguration contains mutable non-secret configuration, without server metadata.
+message StackConfiguration {
+  string name = 1;
+  string repository_url = 2;
+  string branch = 3;
+  string working_directory = 4;
+  Engine engine = 5;
+  string engine_version = 6;
+  repeated StackEnvironmentVariable environment_variables = 7;
+}
