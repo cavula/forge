@@ -86,3 +86,18 @@ custom tenant setting. M0 makes neither an encryption-service nor an auth claim.
   requires human approval for every M1 plan, and permits one active run per stack.
   Fixed timeout defaults and policy-bundle change invalidation are reversible;
   real runner provenance, state fencing and operator reconciliation remain gates.
+
+## State and legacy migration choices — 2026-10-23
+
+- ADR0020 chooses job-bound Basic capabilities for native HTTP state, with no
+  inherited state permission from metadata/resource roles. Native UNLOCK records
+  intent; only trusted process quiescence releases a durable reservation.
+- State uses local mounted envelope keys for M1, with reviewed rotation before
+  exposure. Opaque legacy versions remain retained but unavailable until verified
+  head backfill; missing metadata is never reported as empty state.
+- Stack legacy configuration and unknown creation time remain NULL; revision1 is
+  a new baseline. Full validated replacement repairs configuration only. Downgrade
+  must fail rather than lose configured/archived/post-upgrade data.
+- A workflow signal is only a wakeup; the approval deadline also bounds journal
+  reads/admission. Quiescence/success requires a canonical evidence reference.
+  No successful reconciliation may turn rejected admission into successful apply.
