@@ -109,7 +109,7 @@ func TestLoginFlowRedactionAndInputs(t *testing.T) {
 	value := LoginFlowValue{strings.Repeat("credential", 8)}
 	var log bytes.Buffer
 	slog.New(slog.NewJSONHandler(&log, nil)).Info("fixture", "credential", value)
-	encoded, _ := json.Marshal(LoginFlowStart{value, value, value, value})
+	encoded, _ := json.Marshal(LoginFlowStart{State: value, Binding: value, Nonce: value, PKCEChallenge: value})
 	text, _ := value.MarshalText()
 	testutil.NoSecrets(t, fmt.Sprintf("%v %+v %#v %s %q", value, value, value, value, value)+value.GoString()+string(encoded)+string(text)+log.String(), value.Reveal())
 	for _, invalid := range []string{"", strings.Repeat("A", 42), strings.Repeat("A", 42) + "B", strings.Repeat("A", 43) + "=", strings.Repeat("A", 42) + "\n"} {
@@ -223,10 +223,11 @@ func TestLoginFlowPostgres(t *testing.T) {
 		}
 		var row string
 		var expiry bool
-		err = tx.QueryRow(ctx, `SELECT row_to_json(login_flows)::text, expires_at=created_at+interval '10 minutes'
- FROM login_flows WHERE state_hash=$1 AND binding_hash=$2`, state, binding).Scan(&row, &expiry)
+		var expiresAt time.Time
+		err = tx.QueryRow(ctx, `SELECT row_to_json(login_flows)::text, expires_at=created_at+interval '10 minutes', expires_at
+ FROM login_flows WHERE state_hash=$1 AND binding_hash=$2`, state, binding).Scan(&row, &expiry, &expiresAt)
 		_ = tx.Commit(ctx)
-		if err != nil || !expiry {
+		if err != nil || !expiry || start.ExpiresAt.IsZero() || !start.ExpiresAt.Equal(expiresAt) {
 			t.Fatal("database expiry or stored row invalid")
 		}
 		other := create()
@@ -409,20 +410,8 @@ func TestLoginFlowPostgres(t *testing.T) {
 		exec(pool, "RESET ALL")
 		reset()
 		consume(store, start, true)
-		if database.WithOrg(ctx, pool, id, func(tx pgx.Tx) error {
-			for _, table := range []string{"stacks", "users", "orgs"} {
-				column := "org_id"
-				if table == "orgs" {
-					column = "id"
-				}
-				if _, err := tx.Exec(ctx, "DELETE FROM "+table+" WHERE "+column+"=$1", id); err != nil {
-					return err
-				}
-			}
-			return nil
-		}) != nil {
-			t.Fatal("tenant fixture cleanup failed")
-		}
+		// flowDatabase owns this entire disposable database and drops it after
+		// pools close. Runtime privileges deliberately exclude stack hard DELETE.
 	})
 	t.Run("database acquisition failure returns no partial credentials", func(t *testing.T) {
 		closed := flowPool(t, url, 1)

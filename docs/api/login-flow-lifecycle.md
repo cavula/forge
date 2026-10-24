@@ -11,6 +11,8 @@ Formatting, GoString, JSON, text and structured logs redact opaque values.
 Only decoded-proof SHA-256 digests and the encrypted nonce/verifier JSON enter
 `login_flows`. Database defaults enforce its ten-minute lifetime. Creation and
 its allowlisted success event commit together before any outbound value returns.
+The returned `ExpiresAt` is read from the inserted row, not calculated from the
+application clock. Browser wiring uses it for the binding cookie's deadline.
 
 `Consume` accepts canonical unpadded 32-byte base64url proofs. A short transaction
 clears inherited tenant/principal/session authority, installs both digest GUCs

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/cavula/forge/internal/secrets"
 	"github.com/jackc/pgx/v5"
@@ -31,7 +32,10 @@ func (v LoginFlowValue) MarshalJSON() ([]byte, error) { return json.Marshal(v.St
 func (v LoginFlowValue) MarshalText() ([]byte, error) { return []byte(v.String()), nil }
 func (v LoginFlowValue) LogValue() slog.Value         { return slog.StringValue(v.String()) }
 
-type LoginFlowStart struct{ State, Binding, Nonce, PKCEChallenge LoginFlowValue }
+type LoginFlowStart struct {
+	State, Binding, Nonce, PKCEChallenge LoginFlowValue
+	ExpiresAt                            time.Time
+}
 type LoginFlowConsumed struct{ Nonce, PKCEVerifier LoginFlowValue }
 
 // LoginFlowStore requires an explicit runtime pool and dedicated, protected-file
@@ -82,16 +86,18 @@ func (s *LoginFlowStore) Create(ctx context.Context) (*LoginFlowStart, error) {
 		return nil, ErrLoginFlow
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	_, err = tx.Exec(ctx, `INSERT INTO login_flows
+	var expiresAt time.Time
+	err = tx.QueryRow(ctx, `INSERT INTO login_flows
  (id,state_hash,binding_hash,ciphertext,nonce,wrapped_dek,key_id)
- VALUES($1,$2,$3,$4,$5,$6,$7)`, id, state, binding,
-		envelope.Ciphertext, envelope.Nonce, envelope.WrappedDEK, envelope.KeyID)
+ VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING expires_at`, id, state, binding,
+		envelope.Ciphertext, envelope.Nonce, envelope.WrappedDEK, envelope.KeyID).Scan(&expiresAt)
 	if err != nil || loginFlowEvent(ctx, tx, "login_flow.created") != nil || tx.Commit(ctx) != nil {
 		return nil, ErrLoginFlow
 	}
 	challenge := sha256.Sum256([]byte(values[3]))
-	return &LoginFlowStart{LoginFlowValue{values[0]}, LoginFlowValue{values[1]},
-		LoginFlowValue{values[2]}, LoginFlowValue{base64.RawURLEncoding.EncodeToString(challenge[:])}}, nil
+	return &LoginFlowStart{State: LoginFlowValue{values[0]}, Binding: LoginFlowValue{values[1]},
+		Nonce: LoginFlowValue{values[2]}, PKCEChallenge: LoginFlowValue{base64.RawURLEncoding.EncodeToString(challenge[:])},
+		ExpiresAt: expiresAt}, nil
 }
 
 // Consume commits deletion and its event before opening the payload. An invalid
