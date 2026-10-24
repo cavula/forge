@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -31,6 +32,7 @@ func (v LoginFlowValue) MarshalText() ([]byte, error) { return []byte(v.String()
 func (v LoginFlowValue) LogValue() slog.Value         { return slog.StringValue(v.String()) }
 
 type LoginFlowStart struct{ State, Binding, Nonce, PKCEChallenge LoginFlowValue }
+type LoginFlowConsumed struct{ Nonce, PKCEVerifier LoginFlowValue }
 
 // LoginFlowStore requires an explicit runtime pool and dedicated, protected-file
 // AuthFlowKey. It provides no key discovery, fallback or browser route wiring.
@@ -90,6 +92,47 @@ func (s *LoginFlowStore) Create(ctx context.Context) (*LoginFlowStart, error) {
 	challenge := sha256.Sum256([]byte(values[3]))
 	return &LoginFlowStart{LoginFlowValue{values[0]}, LoginFlowValue{values[1]},
 		LoginFlowValue{values[2]}, LoginFlowValue{base64.RawURLEncoding.EncodeToString(challenge[:])}}, nil
+}
+
+// Consume commits deletion and its event before opening the payload. An invalid
+// envelope or payload permanently consumes the flow and returns no credentials.
+func (s *LoginFlowStore) Consume(ctx context.Context, stateValue, bindingValue string) (*LoginFlowConsumed, error) {
+	state, validState := loginFlowDigest(stateValue)
+	binding, validBinding := loginFlowDigest(bindingValue)
+	if s == nil || s.pool == nil || s.key == nil || !validState || !validBinding {
+		return nil, ErrLoginFlow
+	}
+	tx, err := s.begin(ctx, state, binding)
+	if err != nil {
+		return nil, ErrLoginFlow
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	var id string
+	var envelope secrets.Envelope
+	err = tx.QueryRow(ctx, `DELETE FROM login_flows
+ WHERE state_hash=$1 AND binding_hash=$2 AND expires_at>now()
+ RETURNING id::text,ciphertext,nonce,wrapped_dek,key_id`, state, binding).
+		Scan(&id, &envelope.Ciphertext, &envelope.Nonce, &envelope.WrappedDEK, &envelope.KeyID)
+	if err != nil || loginFlowEvent(ctx, tx, "login_flow.consumed") != nil || tx.Commit(ctx) != nil {
+		return nil, ErrLoginFlow
+	}
+	plaintext, err := s.key.Open(secrets.AuthFlowContext{FlowID: id, Version: 1}, envelope)
+	if err != nil {
+		return nil, ErrLoginFlow
+	}
+	defer clear(plaintext)
+	var payload loginFlowPayload
+	if json.Unmarshal(plaintext, &payload) != nil {
+		return nil, ErrLoginFlow
+	}
+	canonical, _ := json.Marshal(payload)
+	defer clear(canonical)
+	_, nonceOK := loginFlowDigest(payload.Nonce)
+	_, verifierOK := loginFlowDigest(payload.Verifier)
+	if !bytes.Equal(plaintext, canonical) || !nonceOK || !verifierOK {
+		return nil, ErrLoginFlow
+	}
+	return &LoginFlowConsumed{LoginFlowValue{payload.Nonce}, LoginFlowValue{payload.Verifier}}, nil
 }
 
 func (s *LoginFlowStore) begin(ctx context.Context, state, binding []byte) (pgx.Tx, error) {
