@@ -202,8 +202,10 @@ a claim that all deployments fit them; increasing them needs measured capacity.
 Accept one complete JSON object with state `version` exactly integer 4, `serial`
 a base-10 integer 0..MaxInt64 and `lineage` a canonical nonzero lowercase UUID.
 Reject duplicate object keys at every level, trailing data, excessive nesting
-(depth >128), malformed integers and invalid UTF-8. Unknown resource/top-level
-members are retained. Do not validate/echo provider-specific values. Client-side
+(depth >128), malformed integers and invalid UTF-8. Reject top-level keys that
+case-fold to version, serial or lineage unless they use the exact lowercase name;
+Go-compatible Unicode case folding must not permit metadata shadowing. Other
+unknown top-level and provider members remain retained without interpretation. Do not validate/echo provider-specific values. Client-side
 state encryption needs a later reviewed metadata/replay design; do not guess its
 lineage or decrypt with a job-supplied key. Pin compatibility tests to this subset.
 

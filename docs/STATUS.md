@@ -314,3 +314,21 @@ The subsequent stopped disposable PostgreSQL fixture is being replaced with a
 fresh isolated project for further tests. No existing development role/volume was
 modified. Full push/plan/policy/human-approval/apply/versioned-state/audit CI remains
 the M1 completion gate; stop and report before M2.
+
+### Published and reviewed follow-up slices
+
+As of this follow-up, #20/#28/#31/#38 are merged. Refreshed #21 policy380lines,
+#29 fields204, #32 session schema429, #43 model/SDK445, #44 validators449 and
+#51 current-membership operations296 passed all hosted checks and are ready.
+Root reconciled module changes while preserving OPA and Temporal pins.
+Duplicate state design #46 closed in favor of identical main-targeted #48.
+
+Workflow preparation #47, guarded lifecycle #49 and adversarial tests #50 are
+separate drafts with unchanged production exposure. Browser boundary #52 is449
+lines with independent race/vet98.8% evidence. Stack fixture prerequisite #53
+is71 lines; schema #54 is320, independently approved with full PostgreSQL race
+suites twice and278 passing test/subtest events, zero skips. Parent merges and
+new hosted CI still gate drafts. State snapshot validation is independently
+reviewed; slot/capability schemas7/8 and auth cleanup9 are separately assigned.
+Full configuration validation is implemented privately, race100%/vet pass; its
+helper/contract prerequisites must land before publication. No M1 WP is DONE.
