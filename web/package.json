@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0",
     "lint": "tsc --noEmit",
-    "test": "node --experimental-transform-types --test tests/*.test.mjs"
+    "test": "node --import ./tests/register-generated.mjs --experimental-transform-types --test tests/*.test.mjs"
   },
   "dependencies": {
     "@bufbuild/protobuf": "2.16.0",
