@@ -98,13 +98,19 @@ explicit predicates and checks expiry. Grant only required SELECT/INSERT/DELETE,
 not UPDATE; no broad SELECT, SECURITY DEFINER bypass, or auth-context tenant RLS
 policy is introduced. Claimed state/session values never set `forge.org_id`.
 
-Keep anonymous credential-lifecycle events separate from tenant audit: flow
-creation/consumption and session creation/revocation record an allowlisted event
-atomically with their mutation. Runtime may INSERT events but cannot SELECT,
-UPDATE, DELETE or TRUNCATE them; reuse append-only enforcement. Tenant resource
-mutations still require their existing actor/org audit event in the same
-transaction. A generic failed login is a safe security outcome, not tenant audit
-authority or permission to include its raw inputs.
+Keep anonymous credential-lifecycle events separate from tenant audit. Flow
+`login_flow.created`/`login_flow.consumed` and session
+`browser_session.created`/`browser_session.revoked`/`browser_session.replaced`
+use only outcome `success`, meaning the corresponding committed storage mutation,
+never authentication success. Future helpers must record events atomically with
+their mutation. Runtime may INSERT events but cannot SELECT, UPDATE, DELETE or
+TRUNCATE them; reuse append-only enforcement. Tenant resource mutations still
+require their existing actor/org audit event in the same transaction. Generic
+failed-login events require a separately reviewed action/outcome extension and
+never include raw inputs. Downgrade must preserve immutable historical session
+events while restoring the old flow-only action CHECK as NOT VALID so new writes
+reject session events. Reapply validates retained history under the expanded
+allowlist.
 
 Expired rows require bounded periodic pruning before public exposure. Use a
 separate non-owner/NOBYPASSRLS cleanup role with only SELECT on UUID/expiry columns
