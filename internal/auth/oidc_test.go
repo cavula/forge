@@ -95,6 +95,14 @@ func TestOIDCProviderVerification(t *testing.T) {
 	captured.Write(encoded)
 	slog.New(slog.NewTextHandler(&captured, nil)).Info("identity", "principal", principal)
 	testutil.NoSecrets(t, captured.String(), raw, server.URL, "verified-subject", "browser-flow-nonce")
+	for _, audience := range []any{"forge-client", []string{"forge-client"}, []string{"forge-client", "other-client"}} {
+		valid := claims()
+		valid["aud"], valid["azp"] = audience, "forge-client"
+		valid["AZP"] = "unrelated-claim"
+		if got, err := verifier.Verify(ctx, signedIDToken(t, key, valid), "browser-flow-nonce"); err != nil || got != principal {
+			t.Fatal("matching authorized party rejected")
+		}
+	}
 	for name, change := range map[string]func(map[string]any){
 		"wrong issuer":     func(c map[string]any) { c["iss"] = "https://other-issuer.example" },
 		"wrong audience":   func(c map[string]any) { c["aud"] = "other-client" },
@@ -105,10 +113,37 @@ func TestOIDCProviderVerification(t *testing.T) {
 		"missing subject":  func(c map[string]any) { delete(c, "sub") },
 		"wrong nonce":      func(c map[string]any) { c["nonce"] = "different-browser" },
 		"missing nonce":    func(c map[string]any) { delete(c, "nonce") },
+		"wrong azp":        func(c map[string]any) { c["azp"] = "other-client" },
+		"empty azp":        func(c map[string]any) { c["azp"] = "" },
+		"null azp":         func(c map[string]any) { c["azp"] = nil },
+		"invalid azp type": func(c map[string]any) { c["azp"] = []string{"forge-client"} },
+		"multiple audiences without azp": func(c map[string]any) {
+			c["aud"] = []string{"forge-client", "other-client"}
+		},
+		"multiple audiences wrong azp": func(c map[string]any) {
+			c["aud"], c["azp"] = []string{"forge-client", "other-client"}, "other-client"
+		},
+		"uppercase claim without azp": func(c map[string]any) {
+			c["aud"], c["AZP"] = []string{"forge-client", "other-client"}, "forge-client"
+		},
+		"uppercase claim cannot override azp": func(c map[string]any) {
+			c["azp"], c["AZP"] = "other-client", "forge-client"
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			changed := claims()
 			change(changed)
+			assertOIDCRejected(t, verifier, ctx, signedIDToken(t, key, changed), "browser-flow-nonce")
+		})
+	}
+	for _, name := range []string{"iss", "sub", "aud", "exp", "nonce"} {
+		t.Run("casefolded "+name, func(t *testing.T) {
+			changed := claims()
+			changed[strings.ToUpper(name)] = changed[name]
+			delete(changed, name)
+			assertOIDCRejected(t, verifier, ctx, signedIDToken(t, key, changed), "browser-flow-nonce")
+			changed = claims()
+			changed[strings.ToUpper(name)] = changed[name]
 			assertOIDCRejected(t, verifier, ctx, signedIDToken(t, key, changed), "browser-flow-nonce")
 		})
 	}
